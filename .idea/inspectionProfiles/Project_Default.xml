@@ -1,0 +1,58 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="aiofiles" />
+          <option value="aiogram" />
+          <option value="aiohappyeyeballs" />
+          <option value="aiohttp" />
+          <option value="aiokafka" />
+          <option value="aiosignal" />
+          <option value="annotated-doc" />
+          <option value="annotated-types" />
+          <option value="anyio" />
+          <option value="async-timeout" />
+          <option value="asyncpg" />
+          <option value="attrs" />
+          <option value="certifi" />
+          <option value="charset-normalizer" />
+          <option value="dotenv" />
+          <option value="fastapi" />
+          <option value="frozenlist" />
+          <option value="greenlet" />
+          <option value="idna" />
+          <option value="kafka-python" />
+          <option value="magic-filter" />
+          <option value="multidict" />
+          <option value="mypy" />
+          <option value="mypy-extensions" />
+          <option value="numpy" />
+          <option value="packaging" />
+          <option value="pandas" />
+          <option value="pathspec" />
+          <option value="propcache" />
+          <option value="pydantic" />
+          <option value="pydantic-core" />
+          <option value="pydantic-settings" />
+          <option value="python-dateutil" />
+          <option value="python-dotenv" />
+          <option value="pytz" />
+          <option value="redis" />
+          <option value="requests" />
+          <option value="ruff" />
+          <option value="six" />
+          <option value="sniffio" />
+          <option value="sqlalchemy" />
+          <option value="starlette" />
+          <option value="typing-extensions" />
+          <option value="typing-inspection" />
+          <option value="tzdata" />
+          <option value="urllib3" />
+          <option value="yarl" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
