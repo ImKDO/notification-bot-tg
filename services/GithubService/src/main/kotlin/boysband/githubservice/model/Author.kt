@@ -4,13 +4,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class Comment(
-    val author: Author,
-    @JsonProperty("body")
-    val body: String,
+data class Author (
+    @JsonProperty("login")
+    val name: String,
     @JsonProperty("html_url")
-    val link: String,
-    @JsonProperty("created_at")
-    val createdAt: String,
+    val linkOnAuthor: String,
 )
-

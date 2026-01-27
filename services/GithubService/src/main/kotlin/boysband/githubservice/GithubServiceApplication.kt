@@ -10,6 +10,5 @@ import org.springframework.boot.runApplication
 class GithubServiceApplication
 
 fun main(args: Array<String>) {
-	val logger: Logger = LoggerFactory.getLogger(GithubServiceApplication::class.java)
 	runApplication<GithubServiceApplication>(*args)
 }
