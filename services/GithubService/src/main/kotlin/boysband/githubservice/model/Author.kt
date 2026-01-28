@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class Author (
     @JsonProperty("login")
-    val name: String,
+    val name: String = "",
     @JsonProperty("html_url")
-    val linkOnAuthor: String,
+    val linkOnAuthor: String = "",
 )

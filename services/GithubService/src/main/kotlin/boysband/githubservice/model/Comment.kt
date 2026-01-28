@@ -5,12 +5,15 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class Comment(
-    val author: Author,
+    @JsonProperty("user")
+    val author: Author = Author(),
     @JsonProperty("body")
-    val body: String,
+    val body: String = "",
     @JsonProperty("html_url")
-    val link: String,
+    val link: String = "",
     @JsonProperty("created_at")
-    val createdAt: String,
+    val createdAt: String = "",
+    @JsonProperty("updated_at")
+    val updatedAt: String = "",
 )
 

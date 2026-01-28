@@ -10,6 +10,6 @@ data class Issue(
     val owner: String = "",
     val repo: String = "",
     @JsonProperty("user")
-    val author: Author = Author(name = "", linkOnAuthor = ""),
+    val author: Author = Author(),
     val body: String = "",
 )
