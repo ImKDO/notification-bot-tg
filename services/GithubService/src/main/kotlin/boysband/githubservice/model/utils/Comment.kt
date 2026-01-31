@@ -1,5 +1,6 @@
-package boysband.githubservice.model
+package boysband.githubservice.model.utils
 
+import boysband.githubservice.model.utils.Author
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 
@@ -16,4 +17,3 @@ data class Comment(
     @JsonProperty("updated_at")
     val updatedAt: String = "",
 )
-

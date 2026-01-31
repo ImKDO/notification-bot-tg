@@ -1,5 +1,6 @@
 package boysband.githubservice.model
 
+import boysband.githubservice.model.utils.Author
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 
@@ -12,4 +13,7 @@ data class Issue(
     @JsonProperty("user")
     val author: Author = Author(),
     val body: String = "",
+    val state: String = "",
+    @JsonProperty("updated_at")
+    val updatedAt: String = "",
 )

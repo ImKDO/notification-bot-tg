@@ -1,9 +1,10 @@
 package boysband.githubservice.service
 
 import boysband.githubservice.model.Action
-import boysband.githubservice.model.Author
+import boysband.githubservice.model.utils.Author
 import boysband.githubservice.model.Branch
 import boysband.githubservice.model.Commit
+import boysband.githubservice.model.utils.Event
 import boysband.githubservice.model.GithubActions
 import boysband.githubservice.model.Issue
 import boysband.githubservice.model.PullRequest
@@ -81,6 +82,9 @@ class UtilsProcessing(
              ActionType.PULL_REQUEST -> {
                  Regex("""github\.com/([^/]+)/([^/]+)/pull/(\d+)""")
              }
+             else -> {
+                 return ""
+             }
          }
 
          val matchResult = regex.find(url)
@@ -103,6 +107,11 @@ class UtilsProcessing(
                         ref = ref
                     )
                 }
+//                ActionType.EVENT -> {
+//                    Event(
+//
+//                    )
+//                }
                 else -> {
                     "Unknown"
                 }

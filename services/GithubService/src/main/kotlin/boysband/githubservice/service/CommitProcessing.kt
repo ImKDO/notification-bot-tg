@@ -1,6 +1,6 @@
 package boysband.githubservice.service
 
-import boysband.githubservice.model.Comment
+import boysband.githubservice.model.utils.Comment
 import boysband.githubservice.model.Commit
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component

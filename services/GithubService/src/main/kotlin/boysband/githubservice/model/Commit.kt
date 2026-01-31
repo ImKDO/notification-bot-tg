@@ -1,5 +1,6 @@
 package boysband.githubservice.model
 
+import boysband.githubservice.model.utils.Author
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 

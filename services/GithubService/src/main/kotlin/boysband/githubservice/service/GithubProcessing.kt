@@ -24,12 +24,16 @@ class GithubProcessing(
             ActionType.ISSUE -> {
                 val issue = utilsProcessing.parseGithubUrl(ActionType.ISSUE,link) as Issue
                 val issueProcessing = IssueProcessing(utilsProcessing)
-
+                val eventsProcessing = EventProcessing(utilsProcessing)
+                val diffProcessing = DiffService()
                 logger.info("Link parse: $issue")
                 val titleIssue = issueProcessing.getTitle(issue, token)
                 logger.info("Parsed title issue")
                 val commentsIssue = issueProcessing.getComments(issue, token)
                 logger.info("Parsed comments issue")
+                val eventsList = eventsProcessing.getEvents(issue, token)
+                logger.info("Parsed events list: $eventsList")
+                val diffIssue = diffProcessing.diffIssue(issue)
             }
 
             ActionType.COMMIT -> {
