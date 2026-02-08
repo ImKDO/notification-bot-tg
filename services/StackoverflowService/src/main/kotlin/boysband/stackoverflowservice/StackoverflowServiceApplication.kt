@@ -1,5 +1,6 @@
 package boysband.stackoverflowservice
 
+import org.springframework.boot.WebApplicationType
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
@@ -7,5 +8,7 @@ import org.springframework.boot.runApplication
 class StackoverflowServiceApplication
 
 fun main(args: Array<String>) {
-	runApplication<StackoverflowServiceApplication>(*args)
+	runApplication<StackoverflowServiceApplication>(*args) {
+        webApplicationType = WebApplicationType.NONE
+    }
 }
