@@ -1,5 +1,6 @@
-package boysband.githubservice.model
+package boysband.githubservice.model.resourse
 
+import boysband.githubservice.model.utils.Author
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 
@@ -8,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 data class Commit(
     val owner: String = "",
     val repo: String = "",
+    val branch: String = "",
 
     @JsonProperty("sha")
     val ref: String = "",
@@ -25,4 +27,16 @@ data class Commit(
 data class CommitInfo(
     @JsonProperty("message")
     val message: String = "",
+    @JsonProperty("author")
+    val authorInfo: CommitAuthorInfo = CommitAuthorInfo(),
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class CommitAuthorInfo(
+    @JsonProperty("name")
+    val name: String = "",
+    @JsonProperty("email")
+    val email: String = "",
+    @JsonProperty("date")
+    val date: String = "",
 )

@@ -1,0 +1,10 @@
+[project]
+name = "mlservice"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "datasets>=4.5.0",
+    "peft>=0.18.1",
+    "transformers>=5.0.0",
+]
