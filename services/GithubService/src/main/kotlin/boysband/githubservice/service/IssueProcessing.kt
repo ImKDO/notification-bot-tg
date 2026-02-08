@@ -1,10 +1,10 @@
 package boysband.githubservice.service
 
 import boysband.githubservice.cache.EventStateCache
+import boysband.githubservice.model.resourse.Issue
 import boysband.githubservice.model.response.IssueEventResponse
 import boysband.githubservice.model.utils.Comment
 import boysband.githubservice.model.utils.Event
-import boysband.githubservice.model.resourse.Issue
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.web.client.body

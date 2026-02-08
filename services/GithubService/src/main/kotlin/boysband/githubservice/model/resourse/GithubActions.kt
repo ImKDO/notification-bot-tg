@@ -1,4 +1,4 @@
-package boysband.githubservice.model
+package boysband.githubservice.model.resourse
 
 import boysband.githubservice.model.utils.Author
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
