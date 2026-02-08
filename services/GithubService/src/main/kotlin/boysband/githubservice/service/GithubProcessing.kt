@@ -1,67 +1,124 @@
 package boysband.githubservice.service
 
-import boysband.githubservice.model.Commit
-import boysband.githubservice.model.Issue
+import boysband.githubservice.model.resourse.*
 import boysband.githubservice.model.UserRequest
 import boysband.githubservice.model.enums.ActionType
+import boysband.githubservice.model.response.GithubEventResponse
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import org.springframework.web.client.RestClient
 
 @Service
 class GithubProcessing(
-    private val baseUrlClient: RestClient,
+    private val utilsProcessing: UtilsProcessing,
+    private val issueProcessing: IssueProcessing,
+    private val commitProcessing: CommitProcessing,
+    private val pullRequestProcessing: PullRequestProcessing,
+    private val branchProcessing: BranchProcessing,
+    private val githubActionsProcessing: GithubActionsProcessing,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
-    private val utilsProcessing: UtilsProcessing = UtilsProcessing(baseUrlClient)
-    private val issueProcessing = IssueProcessing(utilsProcessing)
-    private val eventsProcessing = EventProcessing(utilsProcessing)
-    private val diffProcessing = DiffService()
 
-    fun getResponse(userRequest: UserRequest): String {
+    fun getResponse(userRequest: UserRequest): GithubEventResponse? {
         val token = userRequest.action.token
-        val nameAction = userRequest.action.name
+        val actionType = userRequest.action.name
         val link = userRequest.link
-        when (nameAction) {
+        val chatId = userRequest.chatId
 
+        val parsedResource = utilsProcessing.parseGithubUrl(actionType, link)
+
+        if (parsedResource == null) {
+            logger.error("Failed to parse GitHub URL: $link for action type: $actionType")
+            return null
+        }
+
+        return when (actionType) {
             ActionType.ISSUE -> {
-                val issue = utilsProcessing.parseGithubUrl(ActionType.ISSUE,link) as Issue
+                val issue = parsedResource as Issue
+                logger.info("Processing Issue: ${issue.owner}/${issue.repo}#${issue.issueNumber}")
 
+                val response = issueProcessing.processIssue(chatId, issue, token)
 
-                logger.info("Link parse: $issue")
-                val titleIssue = issueProcessing.getTitle(issue, token)
-                logger.info("Parsed title issue")
-                val commentsIssue = issueProcessing.getComments(issue, token)
-                logger.info("Parsed comments issue")
-                val eventsList = eventsProcessing.getEvents(issue, token)
-//                logger.info("Parsed events list: $eventsList")
-                val diffIssue = eventsProcessing.getNewEvents(eventsList)
-//                logger.info("Parsed diff issue: ${diffIssue!!.size}")
-                val newOrUpdateCommentsIssue = issueProcessing.getNewOrUpdateComments(commentsIssue!!)
-                logger.info("NewOrUpdateCommentsIssue: ${newOrUpdateCommentsIssue!!.size}")
+                if (response.hasNewEvents) {
+                    logger.info("Found new events for Issue #${issue.issueNumber}: " +
+                        "${response.newComments.size} new comments, " +
+                        "${response.updatedComments.size} updated comments, " +
+                        "${response.newEvents.size} new events, " +
+                        "${response.updatedEvents.size} updated events")
+                } else {
+                    logger.debug("No new events for Issue #${issue.issueNumber}")
+                }
+
+                response
             }
 
             ActionType.COMMIT -> {
-                val commitProcessing = CommitProcessing(utilsProcessing)
-                val commit = utilsProcessing.parseGithubUrl(ActionType.COMMIT,link) as Commit
+                val commit = parsedResource as Commit
+                logger.info("Processing Commit: ${commit.owner}/${commit.repo}@${commit.ref.take(7)}")
 
-                logger.info("Link parse: $commit")
-                val titleCommit = commitProcessing.getTitle(commit, token)
-                logger.info("Parsed title commit $titleCommit")
-                val commentProcessing = commitProcessing.getComments(commit, token)
-                logger.info("Parsed comments commit $commentProcessing")
+                val response = commitProcessing.processCommit(chatId, commit, token)
+
+                if (response.hasNewEvents) {
+                    logger.info("Found new events for Commit ${commit.ref.take(7)}: " +
+                        "${response.newComments.size} new comments, " +
+                        "${response.updatedComments.size} updated comments")
+                } else {
+                    logger.debug("No new comments for Commit ${commit.ref.take(7)}")
+                }
+
+                response
             }
-
 
             ActionType.PULL_REQUEST -> {
+                val pullRequest = parsedResource as PullRequest
+                logger.info("Processing PR: ${pullRequest.owner}/${pullRequest.repo}#${pullRequest.prNumber}")
 
+                val response = pullRequestProcessing.processPullRequest(chatId, pullRequest, token)
+
+                if (response.hasNewEvents) {
+                    logger.info("Found new events for PR #${pullRequest.prNumber}: " +
+                        "${response.newComments.size} new comments, " +
+                        "${response.updatedComments.size} updated comments, " +
+                        "${response.newEvents.size} new events, " +
+                        "${response.updatedEvents.size} updated events, " +
+                        "${response.newCommits.size} new commits")
+                } else {
+                    logger.debug("No new events for PR #${pullRequest.prNumber}")
+                }
+
+                response
             }
 
-            else -> {
+            ActionType.BRANCH -> {
+                val branch = parsedResource as Branch
+                logger.info("Processing Branch: ${branch.owner}/${branch.repo}:${branch.name}")
 
+                val response = branchProcessing.processBranch(chatId, branch, token)
+
+                if (response.hasNewEvents) {
+                    logger.info("Found ${response.newCommits.size} new commits for Branch ${branch.name}")
+                } else {
+                    logger.debug("No new commits for Branch ${branch.name}")
+                }
+
+                response
+            }
+
+            ActionType.GITHUB_ACTIONS -> {
+                val githubActions = parsedResource as GithubActions
+                logger.info("Processing GitHub Actions: ${githubActions.owner}/${githubActions.repo}" +
+                    if (githubActions.workflowId.isNotEmpty()) "/${githubActions.workflowId}" else "")
+
+                val response = githubActionsProcessing.processGithubActions(chatId, githubActions, token)
+
+                if (response.hasNewEvents) {
+                    logger.info("Found ${response.newRuns.size} new workflow runs, ${response.updatedRuns.size} updated runs")
+                } else {
+                    logger.debug("No new workflow runs")
+                }
+
+                response
             }
         }
-        return ""
     }
 }
 

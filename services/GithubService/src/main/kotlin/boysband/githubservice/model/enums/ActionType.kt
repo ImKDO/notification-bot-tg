@@ -4,5 +4,6 @@ enum class ActionType {
     COMMIT,
     ISSUE,
     PULL_REQUEST,
-    EVENT
+    BRANCH,
+    GITHUB_ACTIONS
 }
