@@ -5,5 +5,11 @@ enum class ActionType {
     ISSUE,
     PULL_REQUEST,
     BRANCH,
-    GITHUB_ACTIONS
+    GITHUB_ACTIONS;
+
+    companion object {
+        fun fromMethodName(name: String): ActionType {
+            return valueOf(name.trim().uppercase())
+        }
+    }
 }

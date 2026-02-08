@@ -1,8 +1,8 @@
 package boysband.githubservice.service
 
-import boysband.githubservice.model.resourse.*
-import boysband.githubservice.model.UserRequest
+import boysband.githubservice.model.dto.ActionDto
 import boysband.githubservice.model.enums.ActionType
+import boysband.githubservice.model.resourse.*
 import boysband.githubservice.model.response.GithubEventResponse
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -18,11 +18,25 @@ class GithubProcessing(
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    fun getResponse(userRequest: UserRequest): GithubEventResponse? {
-        val token = userRequest.action.token
-        val actionType = userRequest.action.name
-        val link = userRequest.link
-        val chatId = userRequest.chatId
+    fun getResponse(action: ActionDto): GithubEventResponse? {
+        val chatId = action.user.idTgChat
+        val token = action.token
+
+        if (token.value.isBlank()) {
+            logger.error("Token is empty for chatId: $chatId, actionId: ${action.id}")
+            return null
+        }
+
+        if (token.user.idTgChat != chatId) {
+            logger.error(
+                "Token (id=${token.id}) does not belong to user (chatId=$chatId). " +
+                "Token owner chatId: ${token.user.idTgChat}"
+            )
+            return null
+        }
+
+        val actionType = ActionType.fromMethodName(action.method.name)
+        val link = action.query
 
         val parsedResource = utilsProcessing.parseGithubUrl(actionType, link)
 
@@ -36,7 +50,7 @@ class GithubProcessing(
                 val issue = parsedResource as Issue
                 logger.info("Processing Issue: ${issue.owner}/${issue.repo}#${issue.issueNumber}")
 
-                val response = issueProcessing.processIssue(chatId, issue, token)
+                val response = issueProcessing.processIssue(chatId, issue, token.value)
 
                 if (response.hasNewEvents) {
                     logger.info("Found new events for Issue #${issue.issueNumber}: " +
@@ -55,7 +69,7 @@ class GithubProcessing(
                 val commit = parsedResource as Commit
                 logger.info("Processing Commit: ${commit.owner}/${commit.repo}@${commit.ref.take(7)}")
 
-                val response = commitProcessing.processCommit(chatId, commit, token)
+                val response = commitProcessing.processCommit(chatId, commit, token.value)
 
                 if (response.hasNewEvents) {
                     logger.info("Found new events for Commit ${commit.ref.take(7)}: " +
@@ -72,7 +86,7 @@ class GithubProcessing(
                 val pullRequest = parsedResource as PullRequest
                 logger.info("Processing PR: ${pullRequest.owner}/${pullRequest.repo}#${pullRequest.prNumber}")
 
-                val response = pullRequestProcessing.processPullRequest(chatId, pullRequest, token)
+                val response = pullRequestProcessing.processPullRequest(chatId, pullRequest, token.value)
 
                 if (response.hasNewEvents) {
                     logger.info("Found new events for PR #${pullRequest.prNumber}: " +
@@ -92,7 +106,7 @@ class GithubProcessing(
                 val branch = parsedResource as Branch
                 logger.info("Processing Branch: ${branch.owner}/${branch.repo}:${branch.name}")
 
-                val response = branchProcessing.processBranch(chatId, branch, token)
+                val response = branchProcessing.processBranch(chatId, branch, token.value)
 
                 if (response.hasNewEvents) {
                     logger.info("Found ${response.newCommits.size} new commits for Branch ${branch.name}")
@@ -108,7 +122,7 @@ class GithubProcessing(
                 logger.info("Processing GitHub Actions: ${githubActions.owner}/${githubActions.repo}" +
                     if (githubActions.workflowId.isNotEmpty()) "/${githubActions.workflowId}" else "")
 
-                val response = githubActionsProcessing.processGithubActions(chatId, githubActions, token)
+                val response = githubActionsProcessing.processGithubActions(chatId, githubActions, token.value)
 
                 if (response.hasNewEvents) {
                     logger.info("Found ${response.newRuns.size} new workflow runs, ${response.updatedRuns.size} updated runs")

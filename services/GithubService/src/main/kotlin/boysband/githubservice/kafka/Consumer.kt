@@ -1,6 +1,6 @@
 package boysband.githubservice.kafka
 
-import boysband.githubservice.model.UserRequest
+import boysband.githubservice.model.dto.ActionDto
 import boysband.githubservice.model.response.*
 import boysband.githubservice.service.GithubProcessing
 import org.slf4j.Logger
@@ -18,24 +18,25 @@ class Consumer(
     }
 
     @KafkaListener(topics = ["github_request"], groupId = "github_request_group")
-    fun listen(userRequest: UserRequest) {
-        log.info("Github Consumer received: $userRequest")
+    fun listen(action: ActionDto) {
+        log.info("Github Consumer received: $action")
 
-        val response = githubProcessing.getResponse(userRequest)
+        val response = githubProcessing.getResponse(action)
 
         if (response == null) {
-            log.warn("Failed to process request for: ${userRequest.link}")
+            log.warn("Failed to process request for: ${action.query}")
             return
         }
 
+        val chatId = action.user.idTgChat
         if (response.hasNewEvents) {
-            log.info("New events detected for chatId: ${userRequest.chatId}")
-            processNewEvents(userRequest.chatId, response)
+            log.info("New events detected for chatId: $chatId")
+            processNewEvents(chatId, response)
 
             // Отправляем уведомление в соответствующий топик
-            producer.send(userRequest.chatId, response)
+            producer.send(chatId, response)
         } else {
-            log.debug("No new events for chatId: ${userRequest.chatId}")
+            log.debug("No new events for chatId: $chatId")
         }
     }
 
