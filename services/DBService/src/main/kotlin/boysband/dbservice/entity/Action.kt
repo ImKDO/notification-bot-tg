@@ -1,10 +1,13 @@
 package boysband.dbservice.entity
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.persistence.*
 import java.time.LocalDateTime
+import java.time.ZonedDateTime
 
 @Entity
 @Table(name = "actions")
+@JsonIgnoreProperties(value = ["hibernateLazyInitializer", "handler"])
 class Action(
 
     @Id
@@ -21,6 +24,19 @@ class Action(
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_tg_chat", referencedColumnName = "id_tg_chat", nullable = false)
+    @JsonIgnoreProperties(
+        value = [
+            "tokens",
+            "actions",
+            "tags",
+            "historyAnswers",
+            "summaryReposts",
+            "requestsNewServices",
+            "hibernateLazyInitializer",
+            "handler",
+        ],
+        allowSetters = true,
+    )
     val user: User? = null,
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -34,5 +50,8 @@ class Action(
     val query: String = "",
 
     @Column(nullable = false)
-    val date: LocalDateTime = LocalDateTime.now()
+    val date: LocalDateTime = LocalDateTime.now(),
+
+    @Column(nullable = false)
+    val lastCheckDate: ZonedDateTime = ZonedDateTime.now()
 )

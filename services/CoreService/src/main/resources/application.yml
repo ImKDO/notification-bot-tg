@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: CoreService
+
+kafka:
+  bootstrap-servers: localhost:9092
+  consumer:
+    group-id: stackoverflow-group
+    auto-offset-reset: earliest
+
+scheduler:
+  check-links: 1m

@@ -1,10 +1,12 @@
 package boysband.dbservice.entity
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.persistence.*
 import java.time.LocalDateTime
 
 @Entity
 @Table(name = "summary_reposts")
+@JsonIgnoreProperties(value = ["hibernateLazyInitializer", "handler"])
 class SummaryRepost(
 
     @Id

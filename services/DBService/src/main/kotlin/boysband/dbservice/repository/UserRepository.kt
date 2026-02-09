@@ -6,5 +6,5 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface UserRepository : JpaRepository<User, Int> {
-    fun findByIdTgChat(idTgChat: Int): User?
+    fun findByIdTgChat(idTgChat: Long): User?
 }

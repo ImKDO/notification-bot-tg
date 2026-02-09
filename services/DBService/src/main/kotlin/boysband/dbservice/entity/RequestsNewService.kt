@@ -1,10 +1,12 @@
 package boysband.dbservice.entity
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.persistence.*
 import java.time.LocalDateTime
 
 @Entity
 @Table(name = "requests_new_services")
+@JsonIgnoreProperties(value = ["hibernateLazyInitializer", "handler"])
 class RequestsNewService(
 
     @Id

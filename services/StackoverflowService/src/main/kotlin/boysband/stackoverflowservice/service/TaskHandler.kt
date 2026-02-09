@@ -30,6 +30,8 @@ class TaskHandler(
                     Task.TaskType.NEW_ANSWER -> Update.Type.ANSWERS
                 },
                 creationDate = it.creationDate,
+                actionId = task.actionId,
+                chatId = task.chatId
             )
             sender.sendUpdate(update)
         }

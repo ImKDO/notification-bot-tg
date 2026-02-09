@@ -24,7 +24,7 @@ class UserController(private val userRepository: UserRepository) {
     }
 
     @GetMapping("/tg-chat/{idTgChat}")
-    fun getUserByTgChat(@PathVariable idTgChat: Int): ResponseEntity<User> {
+    fun getUserByTgChat(@PathVariable idTgChat: Long): ResponseEntity<User> {
         val user = userRepository.findByIdTgChat(idTgChat)
         return if (user != null) {
             ResponseEntity.ok(user)

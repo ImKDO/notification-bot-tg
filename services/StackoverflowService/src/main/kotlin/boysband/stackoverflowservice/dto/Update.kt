@@ -7,7 +7,9 @@ data class Update(
     val text: String,
     val creationDate: ZonedDateTime,
     val type: Type,
-    val link: String
+    val link: String,
+    val actionId: Int,
+    val chatId: Long
 ) {
 
     sealed class Type{

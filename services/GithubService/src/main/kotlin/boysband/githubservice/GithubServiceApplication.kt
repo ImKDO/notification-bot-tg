@@ -3,6 +3,7 @@ package boysband.githubservice
 import lombok.extern.slf4j.Slf4j
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.springframework.boot.WebApplicationType
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
@@ -10,5 +11,7 @@ import org.springframework.boot.runApplication
 class GithubServiceApplication
 
 fun main(args: Array<String>) {
-	runApplication<GithubServiceApplication>(*args)
+	runApplication<GithubServiceApplication>(*args){
+        webApplicationType = WebApplicationType.NONE
+    }
 }

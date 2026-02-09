@@ -13,10 +13,10 @@ class TaskConsumer(
 ) {
 
     @KafkaListener(
-        topics = [""],
+        topics = ["stackoverflow"],
         groupId = "test-group-id"
     )
-    fun consumeTask(@Payload task: Task) {
+    suspend fun consumeTask(@Payload task: Task) {
         logger.info("Задание: $task")
         handler.handleTask(task)
     }

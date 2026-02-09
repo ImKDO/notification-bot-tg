@@ -1,9 +1,12 @@
 package boysband.dbservice.entity
 
+import com.fasterxml.jackson.annotation.JsonIgnore
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.persistence.*
 
 @Entity
 @Table(name = "methods")
+@JsonIgnoreProperties(value = ["hibernateLazyInitializer", "handler"])
 class Method(
 
     @Id
@@ -21,5 +24,6 @@ class Method(
     val describe: String = "",
 
     @OneToMany(mappedBy = "method", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)
+    @JsonIgnore
     val actions: MutableList<Action> = mutableListOf()
 )

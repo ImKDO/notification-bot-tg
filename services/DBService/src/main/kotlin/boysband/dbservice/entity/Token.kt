@@ -1,9 +1,11 @@
 package boysband.dbservice.entity
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.persistence.*
 
 @Entity
 @Table(name = "tokens")
+@JsonIgnoreProperties(value = ["hibernateLazyInitializer", "handler"])
 class Token(
 
     @Id
@@ -15,5 +17,18 @@ class Token(
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_tg_chat", referencedColumnName = "id_tg_chat", nullable = false)
+    @JsonIgnoreProperties(
+        value = [
+            "tokens",
+            "actions",
+            "tags",
+            "historyAnswers",
+            "summaryReposts",
+            "requestsNewServices",
+            "hibernateLazyInitializer",
+            "handler",
+        ],
+        allowSetters = true,
+    )
     val user: User? = null
 )

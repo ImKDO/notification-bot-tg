@@ -1,14 +1,19 @@
 package boysband.dbservice.controller
 
 import boysband.dbservice.entity.Token
+import boysband.dbservice.entity.User
 import boysband.dbservice.repository.TokenRepository
+import boysband.dbservice.repository.UserRepository
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/tokens")
-class TokenController(private val tokenRepository: TokenRepository) {
+class TokenController(
+    private val tokenRepository: TokenRepository,
+    private val userRepository: UserRepository,
+) {
 
     @GetMapping
     fun getAllTokens(): List<Token> = tokenRepository.findAll()
@@ -30,14 +35,26 @@ class TokenController(private val tokenRepository: TokenRepository) {
 
     @PostMapping
     fun createToken(@RequestBody token: Token): ResponseEntity<Token> {
-        val savedToken = tokenRepository.save(token)
+        val requestUser = token.user
+            ?: return ResponseEntity.badRequest().build()
+
+        val persistedUser = userRepository.findByIdTgChat(requestUser.idTgChat)
+            ?: userRepository.save(User(idTgChat = requestUser.idTgChat))
+
+        val savedToken = tokenRepository.save(Token(value = token.value, user = persistedUser))
         return ResponseEntity.status(HttpStatus.CREATED).body(savedToken)
     }
 
     @PutMapping("/{id}")
     fun updateToken(@PathVariable id: Int, @RequestBody token: Token): ResponseEntity<Token> {
         return if (tokenRepository.existsById(id)) {
-            val savedToken = tokenRepository.save(token)
+            val requestUser = token.user
+                ?: return ResponseEntity.badRequest().build()
+
+            val persistedUser = userRepository.findByIdTgChat(requestUser.idTgChat)
+                ?: userRepository.save(User(idTgChat = requestUser.idTgChat))
+
+            val savedToken = tokenRepository.save(Token(id = id, value = token.value, user = persistedUser))
             ResponseEntity.ok(savedToken)
         } else {
             ResponseEntity.notFound().build()

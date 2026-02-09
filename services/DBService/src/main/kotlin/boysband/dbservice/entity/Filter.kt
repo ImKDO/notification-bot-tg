@@ -1,9 +1,11 @@
 package boysband.dbservice.entity
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.persistence.*
 
 @Entity
 @Table(name = "filters")
+@JsonIgnoreProperties(value = ["hibernateLazyInitializer", "handler"])
 class Filter(
 
     @Id
