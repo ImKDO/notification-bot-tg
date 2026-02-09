@@ -16,11 +16,17 @@ class BranchProcessing(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     fun processBranch(chatId: Long, branch: Branch, token: String): BranchEventResponse {
+        logger.info("[Branch] Processing ${branch.owner}/${branch.repo}:${branch.name} for chatId=$chatId")
+
         val commits = getCommits(branch, token) ?: emptyList()
+        logger.info("[Branch] Fetched ${commits.size} commits from GitHub API")
 
         val cacheKey = eventStateCache.buildKey(chatId, branch.owner, branch.repo, "branch", branch.name)
+        val cachedSha = eventStateCache.getLastCommitSha(cacheKey)
+        logger.info("[Branch] Cache key=$cacheKey, lastCommitSha=${cachedSha ?: "<null>"}")
 
         val newCommits = filterNewCommits(cacheKey, commits)
+        logger.info("[Branch] Detected ${newCommits.size} new commits")
 
         updateCache(cacheKey, commits)
 
@@ -31,18 +37,24 @@ class BranchProcessing(
     }
 
     fun getCommits(branch: Branch, token: String, perPage: Int = 30): List<Commit>? {
-        return utilsProcessing.baseGithubRequestUrl(branch, "&per_page=$perPage", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting branch commits: ${response.statusCode}")
-            }
-            ?.body<List<Commit>>()
-            ?.map { it.copy(owner = branch.owner, repo = branch.repo, branch = branch.name) }
+        return try {
+            utilsProcessing.baseGithubRequestUrl(branch, "&per_page=$perPage", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    logger.error("Error getting branch commits: ${response.statusCode}")
+                    throw RuntimeException("GitHub API error ${response.statusCode} for branch ${branch.name}")
+                }
+                ?.body<List<Commit>>()
+                ?.map { it.copy(owner = branch.owner, repo = branch.repo, branch = branch.name) }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch branch commits for ${branch.owner}/${branch.repo}:${branch.name}", e)
+            null
+        }
     }
 
     private fun filterNewCommits(cacheKey: String, commits: List<Commit>): List<Commit> {
         val lastCommitSha = eventStateCache.getLastCommitSha(cacheKey)
 
-        if (lastCommitSha == null) {
+        if (lastCommitSha.isNullOrEmpty()) {
             return emptyList()
         }
 
@@ -58,8 +70,15 @@ class BranchProcessing(
     }
 
     private fun updateCache(cacheKey: String, commits: List<Commit>) {
-        commits.firstOrNull()?.let {
-            eventStateCache.setLastCommitSha(cacheKey, it.ref)
+        if (commits.isEmpty()) {
+            // Don't overwrite a good cached SHA with empty string on API failure
+            val existing = eventStateCache.getLastCommitSha(cacheKey)
+            if (existing == null) {
+                // First ever poll — mark cache as initialized
+                eventStateCache.setLastCommitSha(cacheKey, "")
+            }
+            return
         }
+        eventStateCache.setLastCommitSha(cacheKey, commits.first().ref)
     }
 }

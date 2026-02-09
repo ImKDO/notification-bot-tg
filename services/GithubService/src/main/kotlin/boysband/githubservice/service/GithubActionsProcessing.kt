@@ -39,12 +39,17 @@ class GithubActionsProcessing(
     }
 
     fun getWorkflowRuns(githubActions: GithubActions, token: String, perPage: Int = 30): List<WorkflowRun>? {
-        return utilsProcessing.baseGithubRequestUrl(githubActions, "?per_page=$perPage", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting workflow runs: ${response.statusCode}")
-            }
-            ?.body<WorkflowRunsResponse>()
-            ?.workflowRuns
+        return try {
+            utilsProcessing.baseGithubRequestUrl(githubActions, "?per_page=$perPage", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for workflow runs")
+                }
+                ?.body<WorkflowRunsResponse>()
+                ?.workflowRuns
+        } catch (e: Exception) {
+            logger.error("Failed to fetch workflow runs for ${githubActions.owner}/${githubActions.repo}", e)
+            null
+        }
     }
 
     private fun filterNewAndUpdatedRuns(cacheKey: String, runs: List<WorkflowRun>): Pair<List<WorkflowRun>, List<WorkflowRun>> {
@@ -74,13 +79,15 @@ class GithubActionsProcessing(
     }
 
     private fun updateCache(cacheKey: String, runs: List<WorkflowRun>) {
-        runs.maxByOrNull { it.id }?.let {
-            eventStateCache.setLastWorkflowRunId(cacheKey, it.id)
-        }
-
-        runs.forEach { run ->
-            val status = "${run.status}:${run.conclusion ?: "null"}"
-            eventStateCache.setWorkflowRunStatus("$cacheKey:run:${run.id}", status)
+        if (runs.isNotEmpty()) {
+            val maxRunId = runs.maxByOrNull { it.id }!!.id
+            eventStateCache.setLastWorkflowRunId(cacheKey, maxRunId)
+            runs.forEach { run ->
+                val status = "${run.status}:${run.conclusion ?: "null"}"
+                eventStateCache.setWorkflowRunStatus("$cacheKey:run:${run.id}", status)
+            }
+        } else if (eventStateCache.getLastWorkflowRunId(cacheKey) == null) {
+            eventStateCache.setLastWorkflowRunId(cacheKey, 0L)
         }
     }
 }

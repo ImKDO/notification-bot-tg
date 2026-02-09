@@ -34,20 +34,30 @@ class CommitProcessing(
     }
 
     fun getCommitDetails(commit: Commit, token: String): Commit? {
-        return utilsProcessing.baseGithubRequestUrl(commit, "", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting commit details: ${response.statusCode}")
-            }
-            ?.body<Commit>()
-            ?.copy(owner = commit.owner, repo = commit.repo)
+        return try {
+            utilsProcessing.baseGithubRequestUrl(commit, "", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for commit details")
+                }
+                ?.body<Commit>()
+                ?.copy(owner = commit.owner, repo = commit.repo)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch commit details for ${commit.owner}/${commit.repo}@${commit.ref.take(7)}", e)
+            null
+        }
     }
 
     fun getComments(commit: Commit, token: String): List<Comment>? {
-        return utilsProcessing.baseGithubRequestUrl(commit, "/comments", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting commit comments: ${response.statusCode}")
-            }
-            ?.body<List<Comment>>()
+        return try {
+            utilsProcessing.baseGithubRequestUrl(commit, "/comments", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for commit comments")
+                }
+                ?.body<List<Comment>>()
+        } catch (e: Exception) {
+            logger.error("Failed to fetch commit comments for ${commit.owner}/${commit.repo}@${commit.ref.take(7)}", e)
+            null
+        }
     }
 
     private fun filterNewAndUpdatedComments(cacheKey: String, comments: List<Comment>): Pair<List<Comment>, List<Comment>> {
@@ -75,12 +85,14 @@ class CommitProcessing(
     }
 
     private fun updateCache(cacheKey: String, comments: List<Comment>) {
-        comments.maxByOrNull { it.id }?.let {
-            eventStateCache.setLastCommentId(cacheKey, it.id)
-        }
-
-        comments.forEach { comment ->
-            eventStateCache.setCommentUpdatedAt("$cacheKey:comment:${comment.id}", comment.updatedAt)
+        if (comments.isNotEmpty()) {
+            val maxCommentId = comments.maxByOrNull { it.id }!!.id
+            eventStateCache.setLastCommentId(cacheKey, maxCommentId)
+            comments.forEach { comment ->
+                eventStateCache.setCommentUpdatedAt("$cacheKey:comment:${comment.id}", comment.updatedAt)
+            }
+        } else if (eventStateCache.getLastCommentId(cacheKey) == null) {
+            eventStateCache.setLastCommentId(cacheKey, 0L)
         }
     }
 }

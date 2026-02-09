@@ -274,10 +274,18 @@ class UpdateHandlerService(
     private fun StringBuilder.appendComments(header: String, comments: JsonNode) {
         if (!comments.isArray || comments.isEmpty) return
         append("$header (${comments.size()}):\n")
-        comments.take(5).forEach { c ->
+        comments.take(5).forEachIndexed { index, c ->
             val author = c.path("author").asText("?")
+            val authorUrl = c.path("authorUrl").asText("")
             val body = c.path("body").asText("").take(120)
-            append("  • [$author]: $body\n")
+            val link = c.path("link").asText("")
+
+            val authorDisplay = if (authorUrl.isNotBlank()) "<a href='$authorUrl'>$author</a>" else author
+            val commentNum = "#${index + 1}"
+            val commentLink = if (link.isNotBlank()) "<a href='$link'>$commentNum</a>" else commentNum
+
+            append("  $commentLink \u2014 $authorDisplay:\n")
+            append("    $body\n")
         }
         if (comments.size() > 5) append("  … и ещё ${comments.size() - 5}\n")
         append("\n")

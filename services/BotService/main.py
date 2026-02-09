@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
@@ -57,12 +58,20 @@ def auth_service_kb() -> InlineKeyboardMarkup:
 
 def subscribe_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Новая подписка", callback_data="menu:new_sub")],
+        [InlineKeyboardButton(text="📋 Мои подписки", callback_data="menu:my_subs")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+    ])
+
+
+def new_subscribe_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Issue", callback_data="sub:issue")],
         [InlineKeyboardButton(text="Pull Request", callback_data="sub:pull_request")],
         [InlineKeyboardButton(text="Commit", callback_data="sub:commit")],
         [InlineKeyboardButton(text="Github Actions", callback_data="sub:actions")],
         [InlineKeyboardButton(text="Branch", callback_data="sub:branch")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:subscribe")],
     ])
 
 
@@ -171,12 +180,58 @@ SUB_TYPE_LABELS = {
     "branch": "Branch",
 }
 
+# URL hints per subscription type
+SUB_TYPE_HINTS = {
+    "issue": (
+        "Пришлите ссылку на Issue:\n"
+        "<code>https://github.com/owner/repo/issues/123</code>"
+    ),
+    "pull_request": (
+        "Пришлите ссылку на Pull Request:\n"
+        "<code>https://github.com/owner/repo/pull/123</code>"
+    ),
+    "commit": (
+        "Пришлите ссылку на Commit:\n"
+        "<code>https://github.com/owner/repo/commit/abc1234</code>"
+    ),
+    "actions": (
+        "Пришлите ссылку на GitHub Actions:\n"
+        "<code>https://github.com/owner/repo/actions</code>\n"
+        "или на конкретный workflow:\n"
+        "<code>https://github.com/owner/repo/actions/workflows/ci.yml</code>"
+    ),
+    "branch": (
+        "Пришлите ссылку на ветку:\n"
+        "<code>https://github.com/owner/repo/tree/branch-name</code>\n"
+        "или\n"
+        "<code>https://github.com/owner/repo/commits/branch-name</code>"
+    ),
+}
+
+# URL validation patterns (mirror GithubService parsers)
+URL_PATTERNS = {
+    "issue": re.compile(r"github\.com/[^/]+/[^/]+/issues/\d+"),
+    "pull_request": re.compile(r"github\.com/[^/]+/[^/]+/pull/\d+"),
+    "commit": re.compile(r"github\.com/[^/]+/[^/]+/commit/[0-9a-fA-F]+"),
+    "actions": re.compile(r"github\.com/[^/]+/[^/]+/actions"),
+    "branch": re.compile(r"github\.com/[^/]+/[^/]+/(?:tree|commits)/.+"),
+}
+
 
 @router.callback_query(F.data == "menu:subscribe")
 async def menu_subscribe(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
-        "Выберите тип подписки:",
+        "📌 Подписки:",
         reply_markup=subscribe_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:new_sub")
+async def menu_new_subscribe(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "Выберите тип подписки:",
+        reply_markup=new_subscribe_kb(),
     )
     await callback.answer()
 
@@ -186,10 +241,10 @@ async def subscribe_select(callback: CallbackQuery, state: FSMContext) -> None:
     sub_type = callback.data.split(":")[1]
     await state.update_data(sub_type=sub_type)
     label = SUB_TYPE_LABELS.get(sub_type, sub_type)
+    hint = SUB_TYPE_HINTS.get(sub_type, "Пришлите ссылку на GitHub ресурс:")
     await callback.message.edit_text(
-        f"Вы выбрали: {label}\n\n"
-        "Пришлите ссылку на GitHub ресурс\n"
-        "(например: https://github.com/owner/repo):"
+        f"Вы выбрали: {label}\n\n{hint}",
+        parse_mode="HTML",
     )
     await state.set_state(AuthStates.waiting_for_resource_link)
     await callback.answer()
@@ -206,6 +261,18 @@ async def process_resource_link(message: Message, state: FSMContext) -> None:
     if not method_name:
         await message.answer(
             "⚠️ Неизвестный тип подписки. Попробуйте снова.",
+            reply_markup=main_menu_kb(),
+        )
+        await state.clear()
+        return
+
+    # Validate URL format
+    pattern = URL_PATTERNS.get(sub_type)
+    if pattern and not pattern.search(link):
+        hint = SUB_TYPE_HINTS.get(sub_type, "")
+        await message.answer(
+            f"⚠️ Неверный формат ссылки для {label}.\n\n{hint}",
+            parse_mode="HTML",
             reply_markup=main_menu_kb(),
         )
         await state.clear()
@@ -251,6 +318,106 @@ async def process_resource_link(message: Message, state: FSMContext) -> None:
         )
 
     await state.clear()
+
+
+# ── Мои подписки / Отписка ───────────────────────────────────────────────────
+
+METHOD_ICONS = {
+    "ISSUE": "🐛",
+    "PULL_REQUEST": "🔀",
+    "COMMIT": "📝",
+    "BRANCH": "🌿",
+    "GITHUB_ACTIONS": "⚙️",
+}
+
+METHOD_LABELS = {
+    "ISSUE": "Issue",
+    "PULL_REQUEST": "Pull Request",
+    "COMMIT": "Commit",
+    "BRANCH": "Branch",
+    "GITHUB_ACTIONS": "GitHub Actions",
+}
+
+
+def _format_subscription_list(actions: list[dict]) -> tuple[str, InlineKeyboardMarkup]:
+    """Format subscriptions into text + keyboard with unsubscribe buttons."""
+    if not actions:
+        text = "📋 <b>Мои подписки</b>\n\nУ вас пока нет активных подписок."
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Новая подписка", callback_data="menu:new_sub")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:subscribe")],
+        ])
+        return text, kb
+
+    text = "📋 <b>Мои подписки</b>\n\n"
+    buttons = []
+    for i, action in enumerate(actions, 1):
+        method_name = action.get("method", {}).get("name", "?") if action.get("method") else "?"
+        query = action.get("query", "")
+        action_id = action.get("id", 0)
+        icon = METHOD_ICONS.get(method_name, "🔔")
+        label = METHOD_LABELS.get(method_name, method_name)
+
+        # Shorten URL for display
+        short_url = query.replace("https://github.com/", "") if query else "—"
+
+        text += f"{i}. {icon} <b>{label}</b>\n    {short_url}\n\n"
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"❌ {i}. {label} — {short_url[:30]}",
+                callback_data=f"unsub:{action_id}",
+            )
+        ])
+
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:subscribe")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    return text, kb
+
+
+@router.callback_query(F.data == "menu:my_subs")
+async def menu_my_subs(callback: CallbackQuery) -> None:
+    try:
+        async with db:
+            actions = await db.get_actions_by_telegram_id(callback.from_user.id)
+        text, kb = _format_subscription_list(actions)
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except httpx.ConnectError:
+        await callback.message.edit_text(
+            "⚠️ Ошибка: DBService недоступен.",
+            reply_markup=subscribe_kb(),
+        )
+    except Exception as e:
+        logging.error(f"Failed to fetch subscriptions: {e}")
+        await callback.message.edit_text(
+            "⚠️ Ошибка при загрузке подписок.",
+            reply_markup=subscribe_kb(),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("unsub:"))
+async def unsubscribe_action(callback: CallbackQuery) -> None:
+    action_id = int(callback.data.split(":")[1])
+    try:
+        async with db:
+            await db.delete_action(action_id)
+            # Refresh the list
+            actions = await db.get_actions_by_telegram_id(callback.from_user.id)
+        text, kb = _format_subscription_list(actions)
+        text = "✅ Подписка удалена!\n\n" + text
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except httpx.ConnectError:
+        await callback.message.edit_text(
+            "⚠️ Ошибка: DBService недоступен.",
+            reply_markup=subscribe_kb(),
+        )
+    except Exception as e:
+        logging.error(f"Failed to unsubscribe: {e}")
+        await callback.message.edit_text(
+            "⚠️ Ошибка при отписке. Попробуйте позже.",
+            reply_markup=subscribe_kb(),
+        )
+    await callback.answer()
 
 
 # ── 2. Настроить теги ───────────────────────────────────────────────────────
@@ -348,6 +515,7 @@ def _get_icon(service: str, notif_type: str) -> str:
         "pull_request": "🔀",
         "branch": "🌿",
         "actions": "⚙️",
+        "error": "⚠️",
     }
     return icons.get(notif_type, "🔔")
 
@@ -360,6 +528,7 @@ def _type_label(notif_type: str) -> str:
         "pull_request": "Pull Request",
         "branch": "Branch",
         "actions": "GitHub Actions",
+        "error": "Ошибка",
     }
     return labels.get(notif_type, notif_type or "Уведомление")
 

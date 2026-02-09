@@ -46,6 +46,11 @@ class ActionController(
         return actionRepository.findAllByServiceId(serviceId)
     }
 
+    @GetMapping("/telegram/{telegramId}")
+    fun getActionsByTelegramId(@PathVariable telegramId: Long): List<Action> {
+        return actionRepository.findAllByUserIdTgChat(telegramId)
+    }
+
     // ── Subscribe endpoint (auto-resolves service/method/token by name) ─────
 
     data class SubscribeRequest(

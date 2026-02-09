@@ -18,7 +18,7 @@ data class Commit(
     @JsonProperty("commit")
     val commitInfo: CommitInfo = CommitInfo(),
     @JsonProperty("author")
-    val author: Author = Author(),
+    val author: Author? = null,
     @JsonProperty("comments_url")
     val commentsUrl: String = ""
 )

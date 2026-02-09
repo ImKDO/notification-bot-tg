@@ -17,6 +17,20 @@ class Producer(
         const val TOPIC_PULL_REQUEST = "github_pull_request_events"
         const val TOPIC_BRANCH = "github_branch_events"
         const val TOPIC_GITHUB_ACTIONS = "github_actions_events"
+        const val TOPIC_NOTIFICATIONS = "Notifications"
+    }
+
+    fun sendErrorNotification(chatId: Long, errorMessage: String) {
+        val notification = mapOf(
+            "chatId" to chatId,
+            "title" to "⚠️ Ошибка обработки подписки",
+            "message" to errorMessage,
+            "service" to "github",
+            "type" to "error",
+            "url" to "",
+        )
+        logger.warn("Sending error notification to chatId=$chatId: $errorMessage")
+        kafkaTemplate.send(TOPIC_NOTIFICATIONS, chatId.toString(), notification)
     }
 
     fun send(chatId: Long, response: GithubEventResponse) {
@@ -41,8 +55,8 @@ class Producer(
             labels = response.issue.labels.map { LabelNotification(it.name, it.color, it.description) },
             milestone = response.issue.milestone?.let { MilestoneNotification(it.title, it.state, it.dueOn) },
             assignees = response.issue.assignees.map { it.name },
-            newComments = response.newComments.map { CommentNotification(it.author.name, it.body, it.link) },
-            updatedComments = response.updatedComments.map { CommentNotification(it.author.name, it.body, it.link) },
+            newComments = response.newComments.map { CommentNotification(it.author.name, it.author.linkOnAuthor, it.body, it.link) },
+            updatedComments = response.updatedComments.map { CommentNotification(it.author.name, it.author.linkOnAuthor, it.body, it.link) },
             newEvents = response.newEvents.map { EventNotification(it.event, it.actor.name, it.createdAt) },
             updatedEvents = response.updatedEvents.map { EventNotification(it.event, it.actor.name, it.updatedAt) }
         )
@@ -63,12 +77,12 @@ class Producer(
             chatId = chatId,
             sha = response.commit.ref,
             message = response.commit.commitInfo.message,
-            author = response.commit.author.name,
+            author = response.commit.author?.name ?: response.commit.commitInfo.authorInfo.name,
             htmlUrl = response.commit.htmlUrl,
             owner = response.commit.owner,
             repo = response.commit.repo,
-            newComments = response.newComments.map { CommentNotification(it.author.name, it.body, it.link) },
-            updatedComments = response.updatedComments.map { CommentNotification(it.author.name, it.body, it.link) }
+            newComments = response.newComments.map { CommentNotification(it.author.name, it.author.linkOnAuthor, it.body, it.link) },
+            updatedComments = response.updatedComments.map { CommentNotification(it.author.name, it.author.linkOnAuthor, it.body, it.link) }
         )
 
         logger.info("Sending Commit event to topic $TOPIC_COMMIT: ${response.commit.ref.take(7)}")
@@ -98,12 +112,12 @@ class Producer(
             milestone = response.pullRequest.milestone?.let { MilestoneNotification(it.title, it.state, it.dueOn) },
             assignees = response.pullRequest.assignees.map { it.name },
             reviewers = response.pullRequest.requestedReviewers.map { it.name },
-            newComments = response.newComments.map { CommentNotification(it.author.name, it.body, it.link) },
-            updatedComments = response.updatedComments.map { CommentNotification(it.author.name, it.body, it.link) },
+            newComments = response.newComments.map { CommentNotification(it.author.name, it.author.linkOnAuthor, it.body, it.link) },
+            updatedComments = response.updatedComments.map { CommentNotification(it.author.name, it.author.linkOnAuthor, it.body, it.link) },
             newEvents = response.newEvents.map { EventNotification(it.event, it.actor.name, it.createdAt) },
             updatedEvents = response.updatedEvents.map { EventNotification(it.event, it.actor.name, it.updatedAt) },
             newCommits = response.newCommits.map {
-                CommitShortNotification(it.ref, it.commitInfo.message, it.author.name)
+                CommitShortNotification(it.ref, it.commitInfo.message, it.author?.name ?: it.commitInfo.authorInfo.name)
             }
         )
 
@@ -192,6 +206,7 @@ class Producer(
 
 data class CommentNotification(
     val author: String,
+    val authorUrl: String,
     val body: String,
     val link: String
 )

@@ -92,6 +92,23 @@ class UtilsProcessing(
         }
     }
 
+    /**
+     * Build a request using /repos/{owner}/{repo}/issues/{number}{endpoint}.
+     * Needed because GitHub API exposes PR events/timeline under /issues/, not /pulls/.
+     */
+    fun baseGithubIssueStyleRequest(
+        owner: String,
+        repo: String,
+        number: Int,
+        endpoint: String,
+        token: String,
+    ): RestClient.ResponseSpec {
+        return baseUrlClient.get()
+            .uri("/repos/$owner/$repo/issues/$number$endpoint")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer $token")
+            .retrieve()
+    }
+
     fun parseGithubUrl(typeAction: ActionType, url: String): Any? {
         return when (typeAction) {
             ActionType.ISSUE -> parseIssueUrl(url)
@@ -139,8 +156,8 @@ class UtilsProcessing(
     }
 
     private fun parseBranchUrl(url: String): Branch? {
-        // Формат: github.com/owner/repo/tree/branch-name
-        val regex = Regex("""github\.com/([^/]+)/([^/]+)/tree/(.+)""")
+        // Формат: github.com/owner/repo/tree/branch-name или github.com/owner/repo/commits/branch-name
+        val regex = Regex("""github\.com/([^/]+)/([^/]+)/(?:tree|commits)/(.+?)/?$""")
         val matchResult = regex.find(url) ?: return null
 
         val (owner, repo, branchName) = matchResult.destructured

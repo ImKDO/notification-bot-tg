@@ -17,18 +17,38 @@ class Consumer(
         val log: Logger = LoggerFactory.getLogger(this::class.java)
     }
 
+    // Track actions that already got an error notification (to avoid spam every 10s)
+    private val reportedErrorActions = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+
     @KafkaListener(topics = ["github_request"], groupId = "github_request_group")
     fun listen(action: ActionDto) {
         log.info("Github Consumer received: $action")
 
-        val response = githubProcessing.getResponse(action)
+        val chatId = action.user.idTgChat
 
-        if (response == null) {
-            log.warn("Failed to process request for: ${action.query}")
+        val response = try {
+            githubProcessing.getResponse(action)
+        } catch (e: Exception) {
+            log.error("Exception processing request for: ${action.query}", e)
+            if (chatId != 0L && reportedErrorActions.add(action.id)) {
+                producer.sendErrorNotification(chatId,
+                    "Не удалось обработать ресурс:\n${action.query}\n\nОшибка: ${e.message?.take(200)}")
+            }
             return
         }
 
-        val chatId = action.user.idTgChat
+        if (response == null) {
+            log.warn("Failed to process request for: ${action.query}")
+            if (chatId != 0L && reportedErrorActions.add(action.id)) {
+                producer.sendErrorNotification(chatId,
+                    "Не удалось обработать ссылку:\n${action.query}\n\nПроверьте формат ссылки.")
+            }
+            return
+        }
+
+        // If previously failed but now succeeds, clear error state
+        reportedErrorActions.remove(action.id)
+
         if (response.hasNewEvents) {
             log.info("New events detected for chatId: $chatId")
             processNewEvents(chatId, response)
@@ -74,7 +94,7 @@ class Consumer(
             is CommitEventResponse -> {
                 log.info("=== Commit ${response.commit.ref.take(7)} ===")
                 log.info("Message: ${response.commit.commitInfo.message.take(100)}")
-                log.info("Author: ${response.commit.author.name}, URL: ${response.commit.htmlUrl}")
+                log.info("Author: ${response.commit.author?.name ?: response.commit.commitInfo.authorInfo.name}, URL: ${response.commit.htmlUrl}")
 
                 if (response.newComments.isNotEmpty()) {
                     log.info("New comments (${response.newComments.size}):")
@@ -121,7 +141,7 @@ class Consumer(
                 if (response.newCommits.isNotEmpty()) {
                     log.info("New commits (${response.newCommits.size}):")
                     response.newCommits.forEach { commit ->
-                        log.info("  - ${commit.ref.take(7)}: ${commit.commitInfo.message.take(50)} by ${commit.author.name}")
+                        log.info("  - ${commit.ref.take(7)}: ${commit.commitInfo.message.take(50)} by ${commit.author?.name ?: commit.commitInfo.authorInfo.name}")
                     }
                 }
             }

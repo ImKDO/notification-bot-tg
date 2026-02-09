@@ -44,49 +44,85 @@ class PullRequestProcessing(
     }
 
     fun getPullRequestDetails(pullRequest: PullRequest, token: String): PullRequest? {
-        return utilsProcessing.baseGithubRequestUrl(pullRequest, "", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting PR details: ${response.statusCode}")
-            }
-            ?.body<PullRequest>()
-            ?.copy(owner = pullRequest.owner, repo = pullRequest.repo)
+        return try {
+            utilsProcessing.baseGithubRequestUrl(pullRequest, "", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for PR details")
+                }
+                ?.body<PullRequest>()
+                ?.copy(owner = pullRequest.owner, repo = pullRequest.repo)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch PR details for ${pullRequest.owner}/${pullRequest.repo}#${pullRequest.prNumber}", e)
+            null
+        }
     }
 
     fun getComments(pullRequest: PullRequest, token: String): List<Comment>? {
-        return utilsProcessing.baseGithubRequestUrl(pullRequest, "/comments", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting PR comments: ${response.statusCode}")
-            }
-            ?.body<List<Comment>>()
+        // GitHub API: PR conversation comments live under /issues/{number}/comments, not /pulls/{number}/comments
+        return try {
+            utilsProcessing.baseGithubIssueStyleRequest(
+                pullRequest.owner,
+                pullRequest.repo,
+                pullRequest.prNumber,
+                "/comments",
+                token
+            )
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for PR comments")
+                }
+                ?.body<List<Comment>>()
+        } catch (e: Exception) {
+            logger.error("Failed to fetch PR comments for ${pullRequest.owner}/${pullRequest.repo}#${pullRequest.prNumber}", e)
+            null
+        }
     }
 
     fun getReviewComments(pullRequest: PullRequest, token: String): List<Comment>? {
-        return utilsProcessing.baseGithubRequestUrl(pullRequest, "/reviews", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting PR review comments: ${response.statusCode}")
-            }
-            ?.body<List<Comment>>()
+        // GitHub API: /pulls/{number}/comments returns inline code review comments
+        return try {
+            utilsProcessing.baseGithubRequestUrl(pullRequest, "/comments", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for PR review comments")
+                }
+                ?.body<List<Comment>>()
+        } catch (e: Exception) {
+            logger.error("Failed to fetch PR review comments for ${pullRequest.owner}/${pullRequest.repo}#${pullRequest.prNumber}", e)
+            null
+        }
     }
 
     fun getEvents(pullRequest: PullRequest, token: String): List<Event>? {
-        return utilsProcessing.baseGithubRequestUrl(
-            pullRequest.copy(prNumber = pullRequest.prNumber),
-            "/events",
-            token
-        )
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting PR events: ${response.statusCode}")
-            }
-            ?.body<List<Event>>()
+        // GitHub API: PR events live under /issues/{number}/events, not /pulls/{number}/events
+        return try {
+            utilsProcessing.baseGithubIssueStyleRequest(
+                pullRequest.owner,
+                pullRequest.repo,
+                pullRequest.prNumber,
+                "/events",
+                token
+            )
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for PR events")
+                }
+                ?.body<List<Event>>()
+        } catch (e: Exception) {
+            logger.error("Failed to fetch PR events for ${pullRequest.owner}/${pullRequest.repo}#${pullRequest.prNumber}", e)
+            null
+        }
     }
 
     fun getCommits(pullRequest: PullRequest, token: String): List<Commit>? {
-        return utilsProcessing.baseGithubRequestUrl(pullRequest, "/commits", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting PR commits: ${response.statusCode}")
-            }
-            ?.body<List<Commit>>()
-            ?.map { it.copy(owner = pullRequest.owner, repo = pullRequest.repo) }
+        return try {
+            utilsProcessing.baseGithubRequestUrl(pullRequest, "/commits", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for PR commits")
+                }
+                ?.body<List<Commit>>()
+                ?.map { it.copy(owner = pullRequest.owner, repo = pullRequest.repo) }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch PR commits for ${pullRequest.owner}/${pullRequest.repo}#${pullRequest.prNumber}", e)
+            null
+        }
     }
 
     private fun filterNewAndUpdatedComments(
@@ -143,7 +179,7 @@ class PullRequestProcessing(
     private fun filterNewCommits(cacheKey: String, commits: List<Commit>): List<Commit> {
         val lastCommitSha = eventStateCache.getLastCommitSha(cacheKey)
 
-        if (lastCommitSha == null) {
+        if (lastCommitSha.isNullOrEmpty()) {
             return emptyList()
         }
 
@@ -156,24 +192,30 @@ class PullRequestProcessing(
     }
 
     private fun updateCache(cacheKey: String, comments: List<Comment>, events: List<Event>, commits: List<Commit>) {
-        comments.maxByOrNull { it.id }?.let {
-            eventStateCache.setLastCommentId(cacheKey, it.id)
+        if (comments.isNotEmpty()) {
+            val maxCommentId = comments.maxByOrNull { it.id }!!.id
+            eventStateCache.setLastCommentId(cacheKey, maxCommentId)
+            comments.forEach { comment ->
+                eventStateCache.setCommentUpdatedAt("$cacheKey:comment:${comment.id}", comment.updatedAt)
+            }
+        } else if (eventStateCache.getLastCommentId(cacheKey) == null) {
+            eventStateCache.setLastCommentId(cacheKey, 0L)
         }
 
-        comments.forEach { comment ->
-            eventStateCache.setCommentUpdatedAt("$cacheKey:comment:${comment.id}", comment.updatedAt)
+        if (events.isNotEmpty()) {
+            val maxEventId = events.maxByOrNull { it.id }!!.id
+            eventStateCache.setLastEventId(cacheKey, maxEventId)
+            events.forEach { event ->
+                eventStateCache.setEventCreatedAt("$cacheKey:event:${event.id}", event.updatedAt)
+            }
+        } else if (eventStateCache.getLastEventId(cacheKey) == null) {
+            eventStateCache.setLastEventId(cacheKey, 0L)
         }
 
-        events.maxByOrNull { it.id }?.let {
-            eventStateCache.setLastEventId(cacheKey, it.id)
-        }
-
-        events.forEach { event ->
-            eventStateCache.setEventCreatedAt("$cacheKey:event:${event.id}", event.updatedAt)
-        }
-
-        commits.firstOrNull()?.let {
-            eventStateCache.setLastCommitSha(cacheKey, it.ref)
+        if (commits.isNotEmpty()) {
+            eventStateCache.setLastCommitSha(cacheKey, commits.first().ref)
+        } else if (eventStateCache.getLastCommitSha(cacheKey) == null) {
+            eventStateCache.setLastCommitSha(cacheKey, "")
         }
     }
 }

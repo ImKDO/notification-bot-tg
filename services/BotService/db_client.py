@@ -155,11 +155,16 @@ class DBClient:
         response.raise_for_status()
         return response.json()
 
-    async def delete_action(self, action_id: int) -> dict[str, Any]:
+    async def get_actions_by_telegram_id(self, telegram_id: int) -> list[dict[str, Any]]:
+        """Get all actions for user by telegram chat id"""
+        response = await self.client.get(f"actions/telegram/{telegram_id}")
+        response.raise_for_status()
+        return response.json()
+
+    async def delete_action(self, action_id: int) -> None:
         """Delete action"""
         response = await self.client.delete(f"actions/{action_id}")
         response.raise_for_status()
-        return response.json()
 
     # ── Services ─────────────────────────────────────────────────────────────
 

@@ -38,28 +38,43 @@ class IssueProcessing(
     }
 
     fun getIssueDetails(issue: Issue, token: String): Issue? {
-        return utilsProcessing.baseGithubRequestUrl(issue, "", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting issue details: ${response.statusCode}")
-            }
-            ?.body<Issue>()
-            ?.copy(owner = issue.owner, repo = issue.repo)
+        return try {
+            utilsProcessing.baseGithubRequestUrl(issue, "", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for issue details")
+                }
+                ?.body<Issue>()
+                ?.copy(owner = issue.owner, repo = issue.repo)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch issue details for ${issue.owner}/${issue.repo}#${issue.issueNumber}", e)
+            null
+        }
     }
 
     fun getComments(issue: Issue, token: String): List<Comment>? {
-        return utilsProcessing.baseGithubRequestUrl(issue, "/comments", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting issue comments: ${response.statusCode}")
-            }
-            ?.body<List<Comment>>()
+        return try {
+            utilsProcessing.baseGithubRequestUrl(issue, "/comments", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for issue comments")
+                }
+                ?.body<List<Comment>>()
+        } catch (e: Exception) {
+            logger.error("Failed to fetch issue comments for ${issue.owner}/${issue.repo}#${issue.issueNumber}", e)
+            null
+        }
     }
 
     fun getEvents(issue: Issue, token: String): List<Event>? {
-        return utilsProcessing.baseGithubRequestUrl(issue, "/events", token)
-            ?.onStatus({ it.isError }) { _, response ->
-                logger.error("Error getting issue events: ${response.statusCode}")
-            }
-            ?.body<List<Event>>()
+        return try {
+            utilsProcessing.baseGithubRequestUrl(issue, "/events", token)
+                ?.onStatus({ it.isError }) { _, response ->
+                    throw RuntimeException("GitHub API error ${response.statusCode} for issue events")
+                }
+                ?.body<List<Event>>()
+        } catch (e: Exception) {
+            logger.error("Failed to fetch issue events for ${issue.owner}/${issue.repo}#${issue.issueNumber}", e)
+            null
+        }
     }
 
     private fun filterNewAndUpdatedComments(
@@ -114,20 +129,24 @@ class IssueProcessing(
     }
 
     private fun updateCache(cacheKey: String, comments: List<Comment>, events: List<Event>) {
-        comments.maxByOrNull { it.id }?.let {
-            eventStateCache.setLastCommentId(cacheKey, it.id)
+        if (comments.isNotEmpty()) {
+            val maxCommentId = comments.maxByOrNull { it.id }!!.id
+            eventStateCache.setLastCommentId(cacheKey, maxCommentId)
+            comments.forEach { comment ->
+                eventStateCache.setCommentUpdatedAt("$cacheKey:comment:${comment.id}", comment.updatedAt)
+            }
+        } else if (eventStateCache.getLastCommentId(cacheKey) == null) {
+            eventStateCache.setLastCommentId(cacheKey, 0L)
         }
 
-        comments.forEach { comment ->
-            eventStateCache.setCommentUpdatedAt("$cacheKey:comment:${comment.id}", comment.updatedAt)
-        }
-
-        events.maxByOrNull { it.id }?.let {
-            eventStateCache.setLastEventId(cacheKey, it.id)
-        }
-
-        events.forEach { event ->
-            eventStateCache.setEventCreatedAt("$cacheKey:event:${event.id}", event.updatedAt)
+        if (events.isNotEmpty()) {
+            val maxEventId = events.maxByOrNull { it.id }!!.id
+            eventStateCache.setLastEventId(cacheKey, maxEventId)
+            events.forEach { event ->
+                eventStateCache.setEventCreatedAt("$cacheKey:event:${event.id}", event.updatedAt)
+            }
+        } else if (eventStateCache.getLastEventId(cacheKey) == null) {
+            eventStateCache.setLastEventId(cacheKey, 0L)
         }
     }
 }

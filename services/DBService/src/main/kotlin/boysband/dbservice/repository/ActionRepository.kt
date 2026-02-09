@@ -8,4 +8,5 @@ import org.springframework.stereotype.Repository
 interface ActionRepository : JpaRepository<Action, Int> {
     fun findAllByUserId(userId: Int): List<Action>
     fun findAllByServiceId(serviceId: Int): List<Action>
+    fun findAllByUserIdTgChat(idTgChat: Long): List<Action>
 }
