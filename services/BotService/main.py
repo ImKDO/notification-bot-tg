@@ -5,6 +5,7 @@ import re
 
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -18,6 +19,14 @@ from dotenv import load_dotenv
 
 from db_client import DBClient
 from kafka_consumer import NotificationConsumer
+
+
+async def _safe_answer(callback: CallbackQuery) -> None:
+    """Answer callback query, silently ignoring expired/invalid queries."""
+    try:
+        await callback.answer()
+    except TelegramBadRequest:
+        pass
 
 load_dotenv()
 
@@ -43,15 +52,12 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="1. Авторизовать сервис", callback_data="menu:auth")],
         [InlineKeyboardButton(text="2. Подписки", callback_data="menu:subscribe")],
-        [InlineKeyboardButton(text="3. Настроить теги", callback_data="menu:tags")],
-        [InlineKeyboardButton(text="4. История уведомлений", callback_data="menu:history")],
     ])
 
 
 def auth_service_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="1. Github", callback_data="auth:github")],
-        [InlineKeyboardButton(text="2. Stackoverflow", callback_data="auth:stackoverflow")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
     ])
 
@@ -65,12 +71,20 @@ def subscribe_kb() -> InlineKeyboardMarkup:
 
 
 def new_subscribe_kb() -> InlineKeyboardMarkup:
+    """All subscription types in one flat list, grouped visually."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Issue", callback_data="sub:issue")],
-        [InlineKeyboardButton(text="Pull Request", callback_data="sub:pull_request")],
-        [InlineKeyboardButton(text="Commit", callback_data="sub:commit")],
-        [InlineKeyboardButton(text="Github Actions", callback_data="sub:actions")],
-        [InlineKeyboardButton(text="Branch", callback_data="sub:branch")],
+        # GitHub
+        [InlineKeyboardButton(text="── 🐙 GitHub ──", callback_data="noop")],
+        [InlineKeyboardButton(text="🐛 Issue", callback_data="sub:issue")],
+        [InlineKeyboardButton(text="🔀 Pull Request", callback_data="sub:pull_request")],
+        [InlineKeyboardButton(text="📝 Commit", callback_data="sub:commit")],
+        [InlineKeyboardButton(text="⚙️ Github Actions", callback_data="sub:actions")],
+        [InlineKeyboardButton(text="🌿 Branch", callback_data="sub:branch")],
+        # StackOverflow
+        [InlineKeyboardButton(text="── 📚 StackOverflow ──", callback_data="noop")],
+        [InlineKeyboardButton(text="💬 Новые ответы", callback_data="sub:so_new_answer")],
+        [InlineKeyboardButton(text="🗨️ Новые комментарии", callback_data="sub:so_new_comment")],
+        # Back
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:subscribe")],
     ])
 
@@ -104,7 +118,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 async def back_to_main(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.edit_text("Главное меню:", reply_markup=main_menu_kb())
-    await callback.answer()
+    await _safe_answer(callback)
 
 
 # ── 1. Авторизовать сервис ───────────────────────────────────────────────────
@@ -115,7 +129,7 @@ async def menu_auth(callback: CallbackQuery) -> None:
         "Выберите сервис для авторизации:",
         reply_markup=auth_service_kb(),
     )
-    await callback.answer()
+    await _safe_answer(callback)
 
 
 @router.callback_query(F.data.startswith("auth:"))
@@ -126,7 +140,7 @@ async def auth_select_service(callback: CallbackQuery, state: FSMContext) -> Non
         f"Вы выбрали: {service.capitalize()}\n\nВведите токен:"
     )
     await state.set_state(AuthStates.waiting_for_token)
-    await callback.answer()
+    await _safe_answer(callback)
 
 
 @router.message(AuthStates.waiting_for_token)
@@ -165,11 +179,26 @@ async def process_token(message: Message, state: FSMContext) -> None:
 
 # Mapping from callback sub types to DB method names
 SUB_TYPE_TO_METHOD = {
+    # GitHub
     "issue": "ISSUE",
     "pull_request": "PULL_REQUEST",
     "commit": "COMMIT",
     "actions": "GITHUB_ACTIONS",
     "branch": "BRANCH",
+    # StackOverflow
+    "so_new_answer": "NEW_ANSWER",
+    "so_new_comment": "NEW_COMMENT",
+}
+
+# Which service each sub_type belongs to
+SUB_TYPE_SERVICE = {
+    "issue": "GitHub",
+    "pull_request": "GitHub",
+    "commit": "GitHub",
+    "actions": "GitHub",
+    "branch": "GitHub",
+    "so_new_answer": "StackOverflow",
+    "so_new_comment": "StackOverflow",
 }
 
 SUB_TYPE_LABELS = {
@@ -178,6 +207,8 @@ SUB_TYPE_LABELS = {
     "commit": "Commit",
     "actions": "Github Actions",
     "branch": "Branch",
+    "so_new_answer": "Новые ответы",
+    "so_new_comment": "Новые комментарии",
 }
 
 # URL hints per subscription type
@@ -206,6 +237,14 @@ SUB_TYPE_HINTS = {
         "или\n"
         "<code>https://github.com/owner/repo/commits/branch-name</code>"
     ),
+    "so_new_answer": (
+        "Пришлите ссылку на вопрос StackOverflow:\n"
+        "<code>https://stackoverflow.com/questions/12345678</code>"
+    ),
+    "so_new_comment": (
+        "Пришлите ссылку на вопрос StackOverflow:\n"
+        "<code>https://stackoverflow.com/questions/12345678</code>"
+    ),
 }
 
 # URL validation patterns (mirror GithubService parsers)
@@ -215,6 +254,8 @@ URL_PATTERNS = {
     "commit": re.compile(r"github\.com/[^/]+/[^/]+/commit/[0-9a-fA-F]+"),
     "actions": re.compile(r"github\.com/[^/]+/[^/]+/actions"),
     "branch": re.compile(r"github\.com/[^/]+/[^/]+/(?:tree|commits)/.+"),
+    "so_new_answer": re.compile(r"stackoverflow\.com/questions/\d+"),
+    "so_new_comment": re.compile(r"stackoverflow\.com/questions/\d+"),
 }
 
 
@@ -224,7 +265,12 @@ async def menu_subscribe(callback: CallbackQuery) -> None:
         "📌 Подписки:",
         reply_markup=subscribe_kb(),
     )
-    await callback.answer()
+    await _safe_answer(callback)
+
+
+@router.callback_query(F.data == "noop")
+async def noop_callback(callback: CallbackQuery) -> None:
+    await _safe_answer(callback)
 
 
 @router.callback_query(F.data == "menu:new_sub")
@@ -233,21 +279,22 @@ async def menu_new_subscribe(callback: CallbackQuery) -> None:
         "Выберите тип подписки:",
         reply_markup=new_subscribe_kb(),
     )
-    await callback.answer()
+    await _safe_answer(callback)
 
 
 @router.callback_query(F.data.startswith("sub:"))
 async def subscribe_select(callback: CallbackQuery, state: FSMContext) -> None:
     sub_type = callback.data.split(":")[1]
-    await state.update_data(sub_type=sub_type)
+    service_name = SUB_TYPE_SERVICE.get(sub_type, "GitHub")
+    await state.update_data(sub_type=sub_type, service_name=service_name)
     label = SUB_TYPE_LABELS.get(sub_type, sub_type)
-    hint = SUB_TYPE_HINTS.get(sub_type, "Пришлите ссылку на GitHub ресурс:")
+    hint = SUB_TYPE_HINTS.get(sub_type, "Пришлите ссылку на ресурс:")
     await callback.message.edit_text(
         f"Вы выбрали: {label}\n\n{hint}",
         parse_mode="HTML",
     )
     await state.set_state(AuthStates.waiting_for_resource_link)
-    await callback.answer()
+    await _safe_answer(callback)
 
 
 @router.message(AuthStates.waiting_for_resource_link)
@@ -255,6 +302,7 @@ async def process_resource_link(message: Message, state: FSMContext) -> None:
     link = message.text.strip()
     data = await state.get_data()
     sub_type = data.get("sub_type", "")
+    service_name = data.get("service_name", "GitHub")
     method_name = SUB_TYPE_TO_METHOD.get(sub_type, "")
     label = SUB_TYPE_LABELS.get(sub_type, sub_type)
 
@@ -284,11 +332,12 @@ async def process_resource_link(message: Message, state: FSMContext) -> None:
                 telegram_id=message.from_user.id,
                 method_name=method_name,
                 query=link,
-                service_name="GitHub",
+                service_name=service_name,
                 describe=label,
             )
         await message.answer(
             f"⏳ Подписка отправлена на обработку...\n\n"
+            f"Сервис: {service_name}\n"
             f"Тип: {label}\n"
             f"Ресурс: {link}\n\n"
             "Результат придёт в уведомлении.",
@@ -328,6 +377,8 @@ METHOD_ICONS = {
     "COMMIT": "📝",
     "BRANCH": "🌿",
     "GITHUB_ACTIONS": "⚙️",
+    "NEW_ANSWER": "💬",
+    "NEW_COMMENT": "🗨️",
 }
 
 METHOD_LABELS = {
@@ -336,11 +387,18 @@ METHOD_LABELS = {
     "COMMIT": "Commit",
     "BRANCH": "Branch",
     "GITHUB_ACTIONS": "GitHub Actions",
+    "NEW_ANSWER": "Новые ответы",
+    "NEW_COMMENT": "Новые комментарии",
+}
+
+SERVICE_ICONS = {
+    "GitHub": "🐙",
+    "StackOverflow": "📚",
 }
 
 
 def _format_subscription_list(actions: list[dict]) -> tuple[str, InlineKeyboardMarkup]:
-    """Format subscriptions into text + keyboard with unsubscribe buttons."""
+    """Format subscriptions into text + keyboard with unsubscribe buttons, grouped by service."""
     if not actions:
         text = "📋 <b>Мои подписки</b>\n\nУ вас пока нет активных подписок."
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -349,25 +407,41 @@ def _format_subscription_list(actions: list[dict]) -> tuple[str, InlineKeyboardM
         ])
         return text, kb
 
+    # Group by service
+    by_service: dict[str, list[tuple[int, dict]]] = {}
+    for action in actions:
+        svc_name = action.get("service", {}).get("name", "Другое") if action.get("service") else "Другое"
+        by_service.setdefault(svc_name, []).append(action)
+
     text = "📋 <b>Мои подписки</b>\n\n"
     buttons = []
-    for i, action in enumerate(actions, 1):
-        method_name = action.get("method", {}).get("name", "?") if action.get("method") else "?"
-        query = action.get("query", "")
-        action_id = action.get("id", 0)
-        icon = METHOD_ICONS.get(method_name, "🔔")
-        label = METHOD_LABELS.get(method_name, method_name)
+    idx = 0
+    for svc_name, svc_actions in by_service.items():
+        svc_icon = SERVICE_ICONS.get(svc_name, "🔔")
+        text += f"{svc_icon} <b>{svc_name}</b>\n"
+        for action in svc_actions:
+            idx += 1
+            method_name = action.get("method", {}).get("name", "?") if action.get("method") else "?"
+            query = action.get("query", "")
+            action_id = action.get("id", 0)
+            icon = METHOD_ICONS.get(method_name, "🔔")
+            label = METHOD_LABELS.get(method_name, method_name)
 
-        # Shorten URL for display
-        short_url = query.replace("https://github.com/", "") if query else "—"
+            # Shorten URL for display
+            short_url = query
+            if "github.com/" in query:
+                short_url = query.replace("https://github.com/", "")
+            elif "stackoverflow.com/" in query:
+                short_url = query.replace("https://stackoverflow.com/", "SO/")
 
-        text += f"{i}. {icon} <b>{label}</b>\n    {short_url}\n\n"
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"❌ {i}. {label} — {short_url[:30]}",
-                callback_data=f"unsub:{action_id}",
-            )
-        ])
+            text += f"  {idx}. {icon} <b>{label}</b>\n      {short_url}\n"
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"❌ {idx}. {label} — {short_url[:30]}",
+                    callback_data=f"unsub:{action_id}",
+                )
+            ])
+        text += "\n"
 
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:subscribe")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -392,7 +466,7 @@ async def menu_my_subs(callback: CallbackQuery) -> None:
             "⚠️ Ошибка при загрузке подписок.",
             reply_markup=subscribe_kb(),
         )
-    await callback.answer()
+    await _safe_answer(callback)
 
 
 @router.callback_query(F.data.startswith("unsub:"))
@@ -417,41 +491,9 @@ async def unsubscribe_action(callback: CallbackQuery) -> None:
             "⚠️ Ошибка при отписке. Попробуйте позже.",
             reply_markup=subscribe_kb(),
         )
-    await callback.answer()
+    await _safe_answer(callback)
 
 
-# ── 2. Настроить теги ───────────────────────────────────────────────────────
-
-@router.callback_query(F.data == "menu:tags")
-async def menu_tags(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        "🏷 Настройка тегов (в разработке)",
-        reply_markup=main_menu_kb(),
-    )
-    await callback.answer()
-
-
-# ── 4. История уведомлений ──────────────────────────────────────────────────
-
-@router.callback_query(F.data == "menu:history")
-async def menu_history(callback: CallbackQuery) -> None:
-    # Fetch history from DB
-    async with db:
-        user = await db.get_user(callback.from_user.id)
-        if user:
-            history = await db.get_user_history(user_id=user["id"])
-        else:
-            history = []
-    
-    if not history:
-        text = "📜 История уведомлений (пока пусто)"
-    else:
-        text = "📜 История уведомлений:\n\n"
-        for item in history:
-            text += f"• {item.get('content', 'N/A')}\n  {item.get('date', '')}\n\n"
-    
-    await callback.message.edit_text(text, reply_markup=main_menu_kb())
-    await callback.answer()
 
 
 # ── Kafka notification handler ──────────────────────────────────────────────
@@ -483,7 +525,9 @@ async def handle_kafka_notification(notification_data: dict) -> None:
         )
         
         logging.info(f"Notification sent to user {telegram_id}")
-        
+
+    except TelegramBadRequest as e:
+        logging.warning(f"Cannot send to chat {telegram_id}: {e}")
     except Exception as e:
         logging.error(f"Error handling Kafka notification: {e}", exc_info=True)
 
@@ -516,6 +560,8 @@ def _get_icon(service: str, notif_type: str) -> str:
         "branch": "🌿",
         "actions": "⚙️",
         "error": "⚠️",
+        "new_answer": "💬",
+        "new_comment": "🗨️",
     }
     return icons.get(notif_type, "🔔")
 
@@ -529,6 +575,8 @@ def _type_label(notif_type: str) -> str:
         "branch": "Branch",
         "actions": "GitHub Actions",
         "error": "Ошибка",
+        "new_answer": "Новые ответы",
+        "new_comment": "Новые комментарии",
     }
     return labels.get(notif_type, notif_type or "Уведомление")
 

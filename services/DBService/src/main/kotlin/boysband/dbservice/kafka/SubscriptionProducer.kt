@@ -10,9 +10,6 @@ class SubscriptionProducer(
     private val kafkaTemplate: KafkaTemplate<String, Any>
 ) {
 
-    /**
-     * Send newly created subscription (action) to CoreService for immediate processing.
-     */
     fun sendSubscriptionRequest(action: Action) {
         val payload = mapOf(
             "actionId" to action.id,

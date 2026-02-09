@@ -45,7 +45,6 @@ class TokenController(
             ?: try {
                 userRepository.save(User(idTgChat = requestUser.idTgChat))
             } catch (_: Exception) {
-                // Handle race condition: user may have been created concurrently
                 userRepository.findByIdTgChat(requestUser.idTgChat)
                     ?: return ResponseEntity.badRequest().build()
             }
@@ -80,10 +79,6 @@ class TokenController(
         }
     }
 
-    /**
-     * Receive token from BotService and forward to CoreService via Kafka
-     * for validation by GithubService.
-     */
     @PostMapping("/validate")
     fun validateToken(@RequestBody request: TokenValidationRequestDto): ResponseEntity<Map<String, String>> {
         tokenValidationProducer.sendTokenValidationRequest(request)

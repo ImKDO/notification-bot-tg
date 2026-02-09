@@ -17,72 +17,33 @@ class WebClientStackOverflowClient(
     private val mapper: ObjectMapper
 ) : StackoverflowClient {
 
+    private fun extractQuestionId(url: String): String? =
+        """/questions/(\d+)""".toRegex().find(url)?.groups?.get(1)?.value
+
+    private fun stripHtml(html: String): String =
+        html.replace(Regex("<[^>]+>"), "").replace("&amp;", "&")
+            .replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&quot;", "\"").replace("&#39;", "'")
+            .trim()
 
     override suspend fun searchNewComments(url: String, fromDate: ZonedDateTime?): List<Record> {
-        val fromDate = if (fromDate != null) fromDate.toEpochSecond() else 0
-        val id = """/questions/(\d+)/""".toRegex().find(url)?.groups?.get(1)?.value
+        val epochFrom = (fromDate?.toEpochSecond() ?: 0) + 1  // exclusive: skip already-seen
+        val id = extractQuestionId(url) ?: return emptyList()
 
         val request = client
             .method(HttpMethod.GET)
             .uri { uriBuilder ->
                 uriBuilder
-                    .path("/questions/{id}/comments")
-                    .queryParam("site", "{site}")
-                    .queryParam("order", "{order}")
-                    .queryParam("sort", "{sort}")
-                    .queryParam("fromdate", fromDate)
+                    .path("/questions/{id}")
+                    .queryParam("site", "stackoverflow")
+                    .queryParam("order", "asc")
+                    .queryParam("sort", "creation")
                     .queryParam("filter", FILTERS["comments"])
                     .build(id)
             }
 
-        try{
+        try {
             val body = mapper.readTree(request.retrieve().awaitBody<String>())
-
-            val result = ArrayList<Record>()
-
-            body["items"].forEach { item ->
-                item["answers"]?.forEach {answer ->
-                    result.add(
-                        Record(
-                            author = answer["owner"]["display_name"].asText(),
-                            text = answer["body"].asText(),
-                            creationDate = ZonedDateTime.ofInstant(
-                                Instant.ofEpochSecond(answer["creation_date"].asLong()),
-                                ZoneId.of("UTC")
-                            ),
-                        )
-                    )
-                }
-            }
-
-            return result
-        }
-        catch (ex: Exception){
-            println("Exception ${ex.message}")
-            return emptyList()
-        }
-    }
-
-    override suspend fun searchNewAnswers(url: String, fromDate: ZonedDateTime?): List<Record> {
-        val fromDate = if (fromDate != null) fromDate.toEpochSecond() else 0
-        val id = """/questions/(\d+)/""".toRegex().find(url)?.groups?.get(1)?.value
-
-        val request = client
-            .method(HttpMethod.GET)
-            .uri { uriBuilder ->
-                uriBuilder
-                    .path("/questions/{id}/comments")
-                    .queryParam("site", "{site}")
-                    .queryParam("order", "{order}")
-                    .queryParam("sort", "{sort}")
-                    .queryParam("fromdate", fromDate)
-                    .queryParam("filter", FILTERS["comments"])
-                    .build(id)
-            }
-
-        try{
-            val body = mapper.readTree(request.retrieve().awaitBody<String>())
-
             val result = ArrayList<Record>()
 
             body["items"].forEach { item ->
@@ -100,10 +61,58 @@ class WebClientStackOverflowClient(
                 }
             }
 
+
+            println("searchNewComments: found ${result.size} comments for question $id (fromdate=$epochFrom)")
             return result
+        } catch (ex: Exception) {
+            println("Exception in searchNewComments: ${ex.message}")
+            return emptyList()
         }
-        catch (ex: Exception){
-            println("Exception ${ex.message}")
+    }
+
+    override suspend fun searchNewAnswers(url: String, fromDate: ZonedDateTime?): List<Record> {
+        val epochFrom = (fromDate?.toEpochSecond() ?: 0) + 1  // exclusive: skip already-seen
+        val id = extractQuestionId(url) ?: return emptyList()
+
+        val request = client
+            .method(HttpMethod.GET)
+            .uri { uriBuilder ->
+                uriBuilder
+                    .path("/questions/{id}/")
+                    .queryParam("site", "stackoverflow")
+                    .queryParam("order", "asc")
+                    .queryParam("sort", "creation")
+                    .queryParam("fromdate", epochFrom)
+                    .queryParam("filter", FILTERS["answers"])
+                    .build(id)
+            }
+
+        try {
+            val body = mapper.readTree(request.retrieve().awaitBody<String>())
+            val result = ArrayList<Record>()
+
+            body["items"].forEach { item ->
+                item["answers"]?.forEach {answer ->
+                    result.add(
+                        Record(
+                            author = answer["owner"]["display_name"].asText(),
+                            text = answer["body"].asText(),
+                            creationDate = ZonedDateTime.ofInstant(
+                                Instant.ofEpochSecond(answer["creation_date"].asLong()),
+                                ZoneId.of("UTC")
+                            ),
+                        )
+                    )
+                }
+            }
+
+
+
+
+            println("searchNewAnswers: found ${result.size} answers for question $id (fromdate=$epochFrom)")
+            return result
+        } catch (ex: Exception) {
+            println("Exception in searchNewAnswers: ${ex.message}")
             return emptyList()
         }
     }

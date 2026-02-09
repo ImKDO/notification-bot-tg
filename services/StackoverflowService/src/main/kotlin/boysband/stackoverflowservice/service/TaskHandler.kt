@@ -15,11 +15,15 @@ class TaskHandler(
     @param:Qualifier("retryingRealization")
     private val client: StackoverflowClient,
 ) {
+    private val logger = org.slf4j.LoggerFactory.getLogger(TaskHandler::class.java)
+
     open suspend fun handleTask(task: Task){
+        logger.info("Обрабатываем задачу: type=${task.type}, link=${task.link}, previousDate=${task.previousDate}")
         val updates = when(task.type) {
             Task.TaskType.NEW_COMMENT -> client.searchNewComments(task.link, task.previousDate)
             Task.TaskType.NEW_ANSWER -> client.searchNewAnswers(task.link, task.previousDate)
         }
+        logger.info("Найдено ${updates.size} обновлений для задачи actionId=${task.actionId}")
         updates.forEach {
             val update = Update(
                 author = it.author,

@@ -5,6 +5,7 @@ import boysband.coreservice.client.DbServiceClient
 import boysband.coreservice.dto.ActionDto
 import boysband.coreservice.dto.Task
 import boysband.coreservice.kafka.TaskProducer
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 @Service
@@ -14,58 +15,79 @@ class TaskCreatorService(
 ) {
 
     suspend fun giveNewTasks() {
-        val actions = getActions()
-        println(actions)
-        val tasks = routeTasks(actions)
-        tasks.forEach { (topic, task) ->
-            sender.sendUpdate(task, topic)
+        try {
+            val actions = getActions()
+            logger.info("Fetched ${actions.size} actions from DB")
+            val tasks = routeTasks(actions)
+            tasks.forEach { (topic, task) ->
+                try {
+                    sender.sendUpdate(task, topic)
+                } catch (e: Exception) {
+                    logger.error("Failed to send task to topic $topic: ${e.message}", e)
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Error in giveNewTasks: ${e.message}", e)
         }
     }
 
     private suspend fun getActions(): List<ActionDto> {
-        println("Получаем действия из БД...")
+        logger.info("Получаем действия из БД...")
         return client.getActions()
     }
 
     private fun routeTasks(actions: List<ActionDto>): List<Pair<String, Task>> {
         val result = mutableListOf<Pair<String, Task>>()
         actions.forEach { action ->
-            val task = when (action.service.name.lowercase()) {
-                "stackoverflow" -> {
-                    Task.StackOverflowTask(
-                        link = action.query,
-                        actionId = action.id,
-                        type = when(action.method?.name) {
-                            "new_comment" -> Task.StackOverflowTask.TaskType.NEW_COMMENT
-                            "new_answer" -> Task.StackOverflowTask.TaskType.NEW_ANSWER
-                            else -> throw IllegalArgumentException("Unknown method name: ${action.method?.name}")
-                        },
-                        previousDate = action.lastCheckDate,
-                        chatId = action.user?.idTgChat ?: 0
-                    )
+            try {
+                val task = when (action.service.name.lowercase()) {
+                    "stackoverflow" -> {
+                        Task.StackOverflowTask(
+                            link = action.query,
+                            actionId = action.id,
+                            type = when (action.method?.name?.lowercase()) {
+                                "new_comment" -> Task.StackOverflowTask.TaskType.NEW_COMMENT
+                                "new_answer" -> Task.StackOverflowTask.TaskType.NEW_ANSWER
+                                else -> {
+                                    logger.warn("Skipping action ${action.id}: unknown SO method '${action.method?.name}'")
+                                    return@forEach
+                                }
+                            },
+                            previousDate = action.lastCheckDate,
+                            chatId = action.user?.idTgChat ?: 0
+                        )
+                    }
+                    "github" -> {
+                        Task.GithubTask(
+                            id = action.id,
+                            query = action.query,
+                            token = action.token,
+                            user = action.user,
+                            service = action.service,
+                            method = action.method,
+                            describe = action.describe,
+                            date = action.date.toString()
+                        )
+                    }
+                    else -> {
+                        logger.warn("Skipping action ${action.id}: unknown service '${action.service.name}'")
+                        return@forEach
+                    }
                 }
-                "github" -> {
-                    Task.GithubTask(
-                        id = action.id,
-                        query = action.query,
-                        token = action.token,
-                        user = action.user,
-                        service = action.service,
-                        method = action.method,
-                        describe = action.describe,
-                        date = action.date.toString()
-                    )
+                val topic = when (action.service.name.lowercase()) {
+                    "stackoverflow" -> "stackoverflow"
+                    "github" -> "github_request"
+                    else -> return@forEach
                 }
-
-                else -> throw IllegalArgumentException("Unknown service name: ${action.service.name}")
+                result.add(Pair(topic, task))
+            } catch (e: Exception) {
+                logger.error("Error routing action ${action.id}: ${e.message}", e)
             }
-            result.add(Pair(when (action.service.name.lowercase()) {
-                "stackoverflow" -> "stackoverflow"
-                "github" -> "github_request"
-                else -> throw IllegalArgumentException("Unknown service name: ${action.service.name}")
-            }, task))
         }
-
         return result
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(TaskCreatorService::class.java)
     }
 }

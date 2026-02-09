@@ -7,11 +7,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 
-/**
- * Consumes subscription_request from DBService when a new action is created.
- * Immediately forwards the action to GithubService for processing,
- * so the user gets first results right away (without waiting for the scheduler).
- */
 @Component
 class SubscriptionConsumer(
     private val taskProducer: TaskProducer,
@@ -66,6 +61,26 @@ class SubscriptionConsumer(
 
                 logger.info("Forwarding subscription to github_request: actionId=$actionId, query=$query")
                 taskProducer.sendUpdate(task, "github_request")
+            }
+            "stackoverflow" -> {
+                val taskType = when (methodName.lowercase()) {
+                    "new_comment" -> Task.StackOverflowTask.TaskType.NEW_COMMENT
+                    "new_answer" -> Task.StackOverflowTask.TaskType.NEW_ANSWER
+                    else -> {
+                        logger.warn("Unknown StackOverflow method: $methodName")
+                        return
+                    }
+                }
+                val task = Task.StackOverflowTask(
+                    actionId = actionId,
+                    chatId = telegramId,
+                    link = query,
+                    type = taskType,
+                    previousDate = java.time.ZonedDateTime.now(),
+                )
+
+                logger.info("Forwarding subscription to stackoverflow: actionId=$actionId, query=$query")
+                taskProducer.sendUpdate(task, "stackoverflow")
             }
             else -> {
                 logger.warn("Unknown service for subscription: $serviceName")

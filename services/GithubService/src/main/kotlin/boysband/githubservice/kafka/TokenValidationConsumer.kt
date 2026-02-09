@@ -15,11 +15,6 @@ class TokenValidationConsumer(
 ) {
     private val objectMapper = jacksonObjectMapper()
 
-    /**
-     * Consume token validation request from CoreService.
-     * Validate the token via GitHub API.
-     * Produce the result to github_token_validate_result topic.
-     */
     @org.springframework.kafka.annotation.KafkaListener(
         topics = ["github_token_validate"],
         groupId = "github_token_validate_group",

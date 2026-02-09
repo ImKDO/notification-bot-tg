@@ -17,7 +17,6 @@ class Consumer(
         val log: Logger = LoggerFactory.getLogger(this::class.java)
     }
 
-    // Track actions that already got an error notification (to avoid spam every 10s)
     private val reportedErrorActions = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
 
     @KafkaListener(topics = ["github_request"], groupId = "github_request_group")
@@ -46,14 +45,12 @@ class Consumer(
             return
         }
 
-        // If previously failed but now succeeds, clear error state
         reportedErrorActions.remove(action.id)
 
         if (response.hasNewEvents) {
             log.info("New events detected for chatId: $chatId")
             processNewEvents(chatId, response)
 
-            // Отправляем уведомление в соответствующий топик
             producer.send(chatId, response)
         } else {
             log.debug("No new events for chatId: $chatId")

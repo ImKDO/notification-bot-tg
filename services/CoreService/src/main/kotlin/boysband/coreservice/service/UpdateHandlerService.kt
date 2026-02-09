@@ -8,6 +8,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.ZonedDateTime
+import java.util.concurrent.ConcurrentHashMap
 
 @Service
 class UpdateHandlerService(
@@ -16,6 +17,8 @@ class UpdateHandlerService(
 ) {
 
     private val objectMapper = jacksonObjectMapper()
+
+    private val lastNotifiedDate = ConcurrentHashMap<Int, ZonedDateTime>()
 
     suspend fun handleUpdate(topic: String, payload: String) {
         when (topic) {
@@ -38,11 +41,26 @@ class UpdateHandlerService(
         val type = stackOverflowType(node.path("type"))
         val actionId = node.path("actionId").asInt(0)
         val chatId = node.path("chatId").asLong(0L)
-        val creationDateRaw = node.path("creationDate").asText("")
-        val creationDate = ZonedDateTime.parse(creationDateRaw)
 
-        if (chatId == 0L || actionId == 0 || creationDateRaw.isBlank()) {
-            logger.error("Invalid StackOverflow update (chatId/actionId/creationDate missing): $payload")
+        val creationDate = try {
+            val raw = node.path("creationDate")
+            when {
+                raw.isTextual -> ZonedDateTime.parse(raw.asText())
+                raw.isNumber -> ZonedDateTime.ofInstant(
+                    java.time.Instant.ofEpochSecond(raw.asLong()), java.time.ZoneOffset.UTC
+                )
+                else -> {
+                    logger.error("Cannot parse creationDate from StackOverflow update: $payload")
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to parse creationDate: $payload", e)
+            return
+        }
+
+        if (chatId == 0L || actionId == 0) {
+            logger.error("Invalid StackOverflow update (chatId/actionId missing): $payload")
             return
         }
 
@@ -51,36 +69,63 @@ class UpdateHandlerService(
             return
         }
 
+        val lastNotified = lastNotifiedDate[actionId]
+        if (lastNotified != null && !creationDate.isAfter(lastNotified)) {
+            return
+        }
+
+        val actions = try { dbServiceClient.getActions() } catch (e: Exception) {
+            logger.error("Failed to fetch actions from DB", e)
+            emptyList()
+        }
+        val action = actions.firstOrNull { it.id == actionId }
+        if (action != null) {
+            val currentLastCheck = action.lastCheckDate
+            if (!creationDate.isAfter(currentLastCheck)) {
+                lastNotifiedDate[actionId] = currentLastCheck  // seed cache
+                return
+            }
+        }
+
+        lastNotifiedDate[actionId] = creationDate
+
+        val typeLabel = when (type) {
+            "new_comment" -> "Новый комментарий"
+            "new_answer" -> "Новый ответ"
+            else -> "Обновление"
+        }
+
+        val messageBody = buildString {
+            if (author.isNotBlank()) append("👤 $author\n\n")
+            if (text.isNotBlank()) append(text.take(500))
+        }
+
         val notification = Notification(
             chatId = chatId,
-            title = if (author.isNotBlank()) "StackOverflow: $author" else "StackOverflow update",
-            message = text,
+            title = typeLabel,
+            message = messageBody,
             service = "stackoverflow",
             type = type,
             url = link,
         )
         notificationProducer.sendNotification(notification)
 
-        val actions = dbServiceClient.getActions()
-        val action = actions.firstOrNull { it.id == actionId }
-        if (action == null) {
-            logger.error("Action not found for StackOverflow update: actionId=$actionId")
-            return
-        }
-
-        try {
-            dbServiceClient.updateAction(actionId, action.copy(lastCheckDate = creationDate))
-        } catch (e: Exception) {
-            logger.error("Failed to update lastCheckDate for actionId=$actionId", e)
+        if (action != null) {
+            try {
+                dbServiceClient.updateAction(actionId, action.copy(lastCheckDate = creationDate))
+                logger.info("Updated lastCheckDate for actionId=$actionId to $creationDate")
+            } catch (e: Exception) {
+                logger.error("Failed to update lastCheckDate for actionId=$actionId: ${e.message}", e)
+            }
         }
     }
 
     private fun stackOverflowType(typeNode: JsonNode): String {
         if (typeNode.isMissingNode || typeNode.isNull) return "UNKNOWN"
-        if (typeNode.isTextual) return typeNode.asText("UNKNOWN")
-
-        return when (val raw = typeNode.toString()) {
-            "{}", "[]", "null", "\"\"" -> "UNKNOWN"
+        val raw = if (typeNode.isTextual) typeNode.asText("UNKNOWN") else typeNode.toString()
+        return when (raw.uppercase()) {
+            "COMMENTS" -> "new_comment"
+            "ANSWERS" -> "new_answer"
             else -> raw
         }
     }
@@ -269,7 +314,6 @@ class UpdateHandlerService(
         )
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
 
     private fun StringBuilder.appendComments(header: String, comments: JsonNode) {
         if (!comments.isArray || comments.isEmpty) return

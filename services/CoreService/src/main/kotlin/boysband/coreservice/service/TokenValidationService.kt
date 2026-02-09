@@ -21,9 +21,6 @@ class TokenValidationService(
 ) {
     private val objectMapper = jacksonObjectMapper()
 
-    /**
-     * Forward token validation request to GithubService via Kafka.
-     */
     fun forwardToGithubService(request: TokenValidationRequest) {
         logger.info("Forwarding token validation to GithubService for telegramId=${request.telegramId}")
 
@@ -41,11 +38,6 @@ class TokenValidationService(
         }
     }
 
-    /**
-     * Handle validation result from GithubService:
-     * - If valid: save token to DBService via HTTP
-     * - Send notification to Bot via Notifications topic
-     */
     suspend fun handleValidationResult(payload: String) {
         val result = try {
             objectMapper.readValue(payload, TokenValidationResult::class.java)
@@ -60,7 +52,6 @@ class TokenValidationService(
         )
 
         if (result.valid) {
-            // Save token to DBService via HTTP
             try {
                 saveTokenToDb(result)
                 logger.info("Token saved to DB for telegramId=${result.telegramId}")

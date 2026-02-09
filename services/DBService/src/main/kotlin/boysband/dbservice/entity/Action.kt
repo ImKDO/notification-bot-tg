@@ -19,7 +19,7 @@ class Action(
     val method: Method? = null,
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "id_token", nullable = false)
+    @JoinColumn(name = "id_token", nullable = true)
     val token: Token? = null,
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -43,7 +43,7 @@ class Action(
     @JoinColumn(name = "id_service", nullable = false)
     val service: Service? = null,
 
-    @Column(length = 16)
+    @Column(length = 64)
     val describe: String = "",
 
     @Column(length = 16384)

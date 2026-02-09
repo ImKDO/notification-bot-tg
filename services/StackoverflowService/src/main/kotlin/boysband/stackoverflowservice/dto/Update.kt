@@ -3,17 +3,15 @@ package boysband.stackoverflowservice.dto
 import java.time.ZonedDateTime
 
 data class Update(
-    val author: String,
-    val text: String,
-    val creationDate: ZonedDateTime,
-    val type: Type,
-    val link: String,
-    val actionId: Int,
-    val chatId: Long
+    val author: String = "",
+    val text: String = "",
+    val creationDate: ZonedDateTime = ZonedDateTime.now(),
+    val type: Type = Type.ANSWERS,
+    val link: String = "",
+    val actionId: Int = 0,
+    val chatId: Long = 0
 ) {
-
-    sealed class Type{
-        data object ANSWERS : Type()
-        data object COMMENTS : Type()
+    enum class Type {
+        ANSWERS, COMMENTS
     }
 }

@@ -15,10 +15,6 @@ class TokenValidationConsumer(
 ) {
     private val objectMapper = jacksonObjectMapper()
 
-    /**
-     * Consume token validation request from DBService.
-     * Forward to GithubService for actual validation.
-     */
     @KafkaListener(
         id = "token-validation-consumer",
         topics = ["token_validation_request"],

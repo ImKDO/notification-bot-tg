@@ -51,7 +51,6 @@ class ActionController(
         return actionRepository.findAllByUserIdTgChat(telegramId)
     }
 
-    // ── Subscribe endpoint (auto-resolves service/method/token by name) ─────
 
     data class SubscribeRequest(
         val telegramId: Long = 0,
@@ -63,30 +62,29 @@ class ActionController(
 
     @PostMapping("/subscribe")
     fun subscribe(@RequestBody request: SubscribeRequest): ResponseEntity<Any> {
-        // Find user
         val user = userRepository.findByIdTgChat(request.telegramId)
             ?: return ResponseEntity.badRequest()
                 .body(mapOf("error" to "Пользователь не найден. Сначала выполните /start"))
 
-        // Find service by name
         val service = serviceRepository.findByNameIgnoreCase(request.serviceName)
             ?: return ResponseEntity.badRequest()
                 .body(mapOf("error" to "Сервис '${request.serviceName}' не найден"))
 
-        // Find method by name
         val method = methodRepository.findByNameIgnoreCase(request.methodName)
             ?: return ResponseEntity.badRequest()
                 .body(mapOf("error" to "Метод '${request.methodName}' не найден"))
 
-        // Find user's token (need at least one for GitHub API calls)
-        val tokens = tokenRepository.findAllByUserId(user.id)
-        if (tokens.isEmpty()) {
-            return ResponseEntity.badRequest()
-                .body(mapOf("error" to "Токен не найден. Сначала авторизуйте сервис"))
+        val token = if (service.name.equals("GitHub", ignoreCase = true)) {
+            val tokens = tokenRepository.findAllByUserId(user.id)
+            if (tokens.isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(mapOf("error" to "Токен не найден. Сначала авторизуйте сервис"))
+            }
+            tokens.first()
+        } else {
+            tokenRepository.findAllByUserId(user.id).firstOrNull()
         }
-        val token = tokens.first()
 
-        // Create action
         val savedAction = actionRepository.save(
             Action(
                 method = method,
@@ -98,7 +96,6 @@ class ActionController(
             )
         )
 
-        // Send to Kafka for immediate processing by CoreService
         subscriptionProducer.sendSubscriptionRequest(savedAction)
 
         return ResponseEntity.status(HttpStatus.CREATED).body(savedAction)
@@ -162,12 +159,16 @@ class ActionController(
             val requestTokenId = action.token?.id ?: 0
             val requestMethodId = action.method?.id ?: 0
             val requestServiceId = action.service?.id ?: 0
-            if (requestTokenId == 0 || requestMethodId == 0 || requestServiceId == 0) {
+            if (requestMethodId == 0 || requestServiceId == 0) {
                 return ResponseEntity.badRequest().build()
             }
 
-            val persistedToken = tokenRepository.findById(requestTokenId).orElse(null)
-                ?: return ResponseEntity.badRequest().build()
+            val persistedToken = if (requestTokenId != 0) {
+                tokenRepository.findById(requestTokenId).orElse(null)
+                    ?: return ResponseEntity.badRequest().build()
+            } else {
+                null
+            }
             val persistedMethod = methodRepository.findById(requestMethodId).orElse(null)
                 ?: return ResponseEntity.badRequest().build()
             val persistedService = serviceRepository.findById(requestServiceId).orElse(null)

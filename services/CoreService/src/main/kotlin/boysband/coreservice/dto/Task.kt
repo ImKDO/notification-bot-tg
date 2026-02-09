@@ -11,9 +11,8 @@ sealed class Task{
         val type: TaskType,
         val previousDate: ZonedDateTime
     ): Task() {
-        sealed class TaskType{
-            data object NEW_ANSWER : TaskType()
-            data object NEW_COMMENT : TaskType()
+        enum class TaskType {
+            NEW_ANSWER, NEW_COMMENT
         }
     }
 

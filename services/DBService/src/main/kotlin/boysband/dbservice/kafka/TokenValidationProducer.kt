@@ -9,9 +9,6 @@ class TokenValidationProducer(
     private val kafkaTemplate: KafkaTemplate<String, Any>
 ) {
 
-    /**
-     * Send token validation request to CoreService via Kafka.
-     */
     fun sendTokenValidationRequest(request: TokenValidationRequestDto) {
         logger.info("Sending token validation request to Kafka: telegramId=${request.telegramId}, service=${request.service}")
 

@@ -71,10 +71,8 @@ class BranchProcessing(
 
     private fun updateCache(cacheKey: String, commits: List<Commit>) {
         if (commits.isEmpty()) {
-            // Don't overwrite a good cached SHA with empty string on API failure
             val existing = eventStateCache.getLastCommitSha(cacheKey)
             if (existing == null) {
-                // First ever poll — mark cache as initialized
                 eventStateCache.setLastCommitSha(cacheKey, "")
             }
             return

@@ -1,9 +1,3 @@
--- Создание базы данных notification_bot
--- База данных уже создана через переменную окружения POSTGRES_DB
-
--- Создание таблиц в правильном порядке (сначала независимые, потом зависимые)
-
--- Таблица users
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     id_tg_chat BIGINT UNIQUE NOT NULL,
@@ -12,14 +6,12 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_id_tg_chat ON users(id_tg_chat);
 
--- Таблица services
 CREATE TABLE IF NOT EXISTS services (
     id SERIAL PRIMARY KEY,
     link VARCHAR(256) NOT NULL,
     name VARCHAR(256) NOT NULL
 );
 
--- Таблица methods
 CREATE TABLE IF NOT EXISTS methods (
     id SERIAL PRIMARY KEY,
     id_service INTEGER NOT NULL,
@@ -30,7 +22,6 @@ CREATE TABLE IF NOT EXISTS methods (
 
 CREATE INDEX IF NOT EXISTS idx_methods_id_service ON methods(id_service);
 
--- Таблица filters
 CREATE TABLE IF NOT EXISTS filters (
     id SERIAL PRIMARY KEY,
     id_service INTEGER NOT NULL,
@@ -41,7 +32,6 @@ CREATE TABLE IF NOT EXISTS filters (
 
 CREATE INDEX IF NOT EXISTS idx_filters_id_service ON filters(id_service);
 
--- Таблица tokens
 CREATE TABLE IF NOT EXISTS tokens (
     id SERIAL PRIMARY KEY,
     value VARCHAR(256) NOT NULL,
@@ -51,14 +41,13 @@ CREATE TABLE IF NOT EXISTS tokens (
 
 CREATE INDEX IF NOT EXISTS idx_tokens_id_tg_chat ON tokens(id_tg_chat);
 
--- Таблица actions
 CREATE TABLE IF NOT EXISTS actions (
     id SERIAL PRIMARY KEY,
     id_method INTEGER NOT NULL,
-    id_token INTEGER NOT NULL,
+    id_token INTEGER,
     id_tg_chat BIGINT NOT NULL,
     id_service INTEGER NOT NULL,
-    describe VARCHAR(16),
+    describe VARCHAR(64),
     query VARCHAR(16384),
     date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_check_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -72,7 +61,6 @@ CREATE INDEX IF NOT EXISTS idx_actions_id_token ON actions(id_token);
 CREATE INDEX IF NOT EXISTS idx_actions_id_tg_chat ON actions(id_tg_chat);
 CREATE INDEX IF NOT EXISTS idx_actions_last_check_date ON actions(last_check_date);
 
--- Таблица tags
 CREATE TABLE IF NOT EXISTS tags (
     id SERIAL PRIMARY KEY,
     id_tg_chat BIGINT NOT NULL,
@@ -82,7 +70,6 @@ CREATE TABLE IF NOT EXISTS tags (
 
 CREATE INDEX IF NOT EXISTS idx_tags_id_tg_chat ON tags(id_tg_chat);
 
--- Таблица history_answers
 CREATE TABLE IF NOT EXISTS history_answers (
     id SERIAL PRIMARY KEY,
     id_tg_chat BIGINT NOT NULL,
@@ -93,7 +80,6 @@ CREATE TABLE IF NOT EXISTS history_answers (
 
 CREATE INDEX IF NOT EXISTS idx_history_answers_id_tg_chat ON history_answers(id_tg_chat);
 
--- Таблица summary_reposts
 CREATE TABLE IF NOT EXISTS summary_reposts (
     id SERIAL PRIMARY KEY,
     id_tg_chat BIGINT NOT NULL,
@@ -104,7 +90,6 @@ CREATE TABLE IF NOT EXISTS summary_reposts (
 
 CREATE INDEX IF NOT EXISTS idx_summary_reposts_id_tg_chat ON summary_reposts(id_tg_chat);
 
--- Таблица requests_new_services
 CREATE TABLE IF NOT EXISTS requests_new_services (
     id SERIAL PRIMARY KEY,
     id_tg_chat BIGINT NOT NULL,
@@ -115,12 +100,14 @@ CREATE TABLE IF NOT EXISTS requests_new_services (
 
 CREATE INDEX IF NOT EXISTS idx_requests_new_services_id_tg_chat ON requests_new_services(id_tg_chat);
 
--- Вставка начальных данных для сервиса GitHub
 INSERT INTO services (link, name) VALUES
     ('https://api.github.com', 'GitHub')
 ON CONFLICT DO NOTHING;
 
--- Вставка методов для GitHub
+INSERT INTO services (link, name) VALUES
+    ('https://api.stackexchange.com', 'StackOverflow')
+ON CONFLICT DO NOTHING;
+
 INSERT INTO methods (id_service, name, describe) VALUES
     (1, 'ISSUE', 'Track GitHub issues'),
     (1, 'COMMIT', 'Track GitHub commits'),
@@ -129,7 +116,11 @@ INSERT INTO methods (id_service, name, describe) VALUES
     (1, 'GITHUB_ACTIONS', 'Track GitHub Actions')
 ON CONFLICT DO NOTHING;
 
--- Комментарий о успешной инициализации
+INSERT INTO methods (id_service, name, describe) VALUES
+    (2, 'NEW_ANSWER', 'Track new answers on StackOverflow questions'),
+    (2, 'NEW_COMMENT', 'Track new comments on StackOverflow questions')
+ON CONFLICT DO NOTHING;
+
 DO $$
 BEGIN
     RAISE NOTICE 'Database notification_bot initialized successfully!';
