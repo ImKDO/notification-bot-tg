@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 
+import httpx
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -40,7 +41,7 @@ class AuthStates(StatesGroup):
 def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="1. Авторизовать сервис", callback_data="menu:auth")],
-        [InlineKeyboardButton(text="2. Настроить уведомления", callback_data="menu:notifications")],
+        [InlineKeyboardButton(text="2. Подписки", callback_data="menu:subscribe")],
         [InlineKeyboardButton(text="3. Настроить теги", callback_data="menu:tags")],
         [InlineKeyboardButton(text="4. История уведомлений", callback_data="menu:history")],
     ])
@@ -67,9 +68,6 @@ def subscribe_kb() -> InlineKeyboardMarkup:
 
 def notification_period_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="5 секунд", callback_data="period:5s")],
-        [InlineKeyboardButton(text="5 минут", callback_data="period:5m")],
-        [InlineKeyboardButton(text="15 минут", callback_data="period:15m")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
     ])
 
@@ -80,10 +78,14 @@ def notification_period_kb() -> InlineKeyboardMarkup:
 async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
     # Register user in DB
-    async with db:
-        await db.create_user(
-            telegram_id=message.from_user.id,
-        )
+    try:
+        async with db:
+            await db.create_user(
+                telegram_id=message.from_user.id,
+            )
+    except httpx.ConnectError:
+        await message.answer("⚠️ Ошибка: База данных недоступна. Пожалуйста, убедитесь, что DBService запущен.")
+        return
     await message.answer("Главное меню:", reply_markup=main_menu_kb())
 
 
@@ -123,36 +125,71 @@ async def process_token(message: Message, state: FSMContext) -> None:
     token = message.text.strip()
     data = await state.get_data()
     service = data.get("service", "")
-    
-    # Save token to DB
-    async with db:
-        await db.create_token(
-            telegram_id=message.from_user.id,
-            token_value=token,
+
+    # Send token to DBService for validation via HTTP
+    try:
+        async with db:
+            await db.validate_token(
+                telegram_id=message.from_user.id,
+                token_value=token,
+                service=service,
+            )
+        await message.answer(
+            "⏳ Токен отправлен на валидацию...\n"
+            "Результат придёт в уведомлении.",
+            reply_markup=main_menu_kb(),
         )
-    
-    await state.update_data(token=token)
-    await message.answer(
-        "Токен сохранён ✅\n\nНа что подписаться?",
+    except httpx.ConnectError:
+        await message.answer(
+            "⚠️ Ошибка: DBService недоступен.",
+            reply_markup=main_menu_kb(),
+        )
+    except Exception as e:
+        logging.error(f"Failed to send token for validation: {e}")
+        await message.answer(
+            "⚠️ Ошибка при отправке токена. Попробуйте позже.",
+            reply_markup=main_menu_kb(),
+        )
+
+    await state.clear()
+
+
+# Mapping from callback sub types to DB method names
+SUB_TYPE_TO_METHOD = {
+    "issue": "ISSUE",
+    "pull_request": "PULL_REQUEST",
+    "commit": "COMMIT",
+    "actions": "GITHUB_ACTIONS",
+    "branch": "BRANCH",
+}
+
+SUB_TYPE_LABELS = {
+    "issue": "Issue",
+    "pull_request": "Pull Request",
+    "commit": "Commit",
+    "actions": "Github Actions",
+    "branch": "Branch",
+}
+
+
+@router.callback_query(F.data == "menu:subscribe")
+async def menu_subscribe(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "Выберите тип подписки:",
         reply_markup=subscribe_kb(),
     )
-    await state.set_state(None)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("sub:"))
 async def subscribe_select(callback: CallbackQuery, state: FSMContext) -> None:
     sub_type = callback.data.split(":")[1]
     await state.update_data(sub_type=sub_type)
-    label = {
-        "issue": "Issue",
-        "pull_request": "Pull Request",
-        "commit": "Commit",
-        "actions": "Github Actions",
-        "branch": "Branch",
-    }.get(sub_type, sub_type)
+    label = SUB_TYPE_LABELS.get(sub_type, sub_type)
     await callback.message.edit_text(
         f"Вы выбрали: {label}\n\n"
-        "Пришлите ссылку на ваш выбранный на предыдущем шаге ресурс:"
+        "Пришлите ссылку на GitHub ресурс\n"
+        "(например: https://github.com/owner/repo):"
     )
     await state.set_state(AuthStates.waiting_for_resource_link)
     await callback.answer()
@@ -162,52 +199,61 @@ async def subscribe_select(callback: CallbackQuery, state: FSMContext) -> None:
 async def process_resource_link(message: Message, state: FSMContext) -> None:
     link = message.text.strip()
     data = await state.get_data()
-    
-    # Note: This is a simplified version. In real implementation,
-    # you need to get service_id, method_id, and token_id from the database
-    # based on the user's choices. For now, we'll just acknowledge the subscription.
-    
-    await message.answer(
-        f"Подписка оформлена ✅\n\n"
-        f"Сервис: {data.get('service', '').capitalize()}\n"
-        f"Тип: {data.get('sub_type', '')}\n"
-        f"Ресурс: {link}\n\n"
-        "Возвращаемся в главное меню.\n\n"
-        "⚠️ Примечание: Для полной реализации требуется настройка service_id, method_id и token_id.",
-        reply_markup=main_menu_kb(),
-    )
+    sub_type = data.get("sub_type", "")
+    method_name = SUB_TYPE_TO_METHOD.get(sub_type, "")
+    label = SUB_TYPE_LABELS.get(sub_type, sub_type)
+
+    if not method_name:
+        await message.answer(
+            "⚠️ Неизвестный тип подписки. Попробуйте снова.",
+            reply_markup=main_menu_kb(),
+        )
+        await state.clear()
+        return
+
+    try:
+        async with db:
+            await db.subscribe(
+                telegram_id=message.from_user.id,
+                method_name=method_name,
+                query=link,
+                service_name="GitHub",
+                describe=label,
+            )
+        await message.answer(
+            f"⏳ Подписка отправлена на обработку...\n\n"
+            f"Тип: {label}\n"
+            f"Ресурс: {link}\n\n"
+            "Результат придёт в уведомлении.",
+            reply_markup=main_menu_kb(),
+        )
+    except httpx.HTTPStatusError as e:
+        error_detail = ""
+        try:
+            error_body = e.response.json()
+            error_detail = error_body.get("error", str(e))
+        except Exception:
+            error_detail = str(e)
+        await message.answer(
+            f"⚠️ Ошибка: {error_detail}",
+            reply_markup=main_menu_kb(),
+        )
+    except httpx.ConnectError:
+        await message.answer(
+            "⚠️ Ошибка: DBService недоступен.",
+            reply_markup=main_menu_kb(),
+        )
+    except Exception as e:
+        logging.error(f"Failed to create subscription: {e}")
+        await message.answer(
+            "⚠️ Ошибка при создании подписки. Попробуйте позже.",
+            reply_markup=main_menu_kb(),
+        )
+
     await state.clear()
 
 
-# ── 2. Настроить уведомления ────────────────────────────────────────────────
-
-@router.callback_query(F.data == "menu:notifications")
-async def menu_notifications(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        "Выберите период получения уведомлений:",
-        reply_markup=notification_period_kb(),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("period:"))
-async def period_select(callback: CallbackQuery) -> None:
-    period = callback.data.split(":")[1]
-    label = {"5s": "5 секунд", "5m": "5 минут", "15m": "15 минут"}.get(period, period)
-    period_seconds = {"5s": 5, "5m": 300, "15m": 900}.get(period, 300)
-    
-    # Note: Notification period setting is not implemented in DBService API
-    # This would require adding custom endpoint or storing in User entity
-    
-    await callback.message.edit_text(
-        f"Период уведомлений установлен: {label} ✅\n\n"
-        "⚠️ Примечание: Функция сохранения периода требует расширения DBService API.",
-        reply_markup=main_menu_kb(),
-    )
-    await callback.answer()
-
-
-# ── 3. Настроить теги ───────────────────────────────────────────────────────
+# ── 2. Настроить теги ───────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:tags")
 async def menu_tags(callback: CallbackQuery) -> None:
@@ -246,18 +292,10 @@ async def menu_history(callback: CallbackQuery) -> None:
 async def handle_kafka_notification(notification_data: dict) -> None:
     """
     Handle notifications from Kafka topic.
-    Expected notification format:
-    {
-        "telegram_id": 123456,
-        "title": "Notification title",
-        "message": "Notification message",
-        "service": "github",
-        "type": "issue",
-        "url": "https://github.com/..."
-    }
+    Formats rich messages based on notification type.
     """
     try:
-        telegram_id = notification_data.get("telegram_id")
+        telegram_id = notification_data.get("telegram_id") or notification_data.get("chatId")
         title = notification_data.get("title", "Новое уведомление")
         message = notification_data.get("message", "")
         service = notification_data.get("service", "")
@@ -268,16 +306,7 @@ async def handle_kafka_notification(notification_data: dict) -> None:
             logging.warning(f"No telegram_id in notification: {notification_data}")
             return
         
-        # Format notification message
-        text = f"🔔 <b>{title}</b>\n\n"
-        if message:
-            text += f"{message}\n\n"
-        if service:
-            text += f"📌 Сервис: {service.capitalize()}\n"
-        if notif_type:
-            text += f"📋 Тип: {notif_type}\n"
-        if url:
-            text += f"🔗 <a href='{url}'>Открыть</a>"
+        text = _format_notification(service, notif_type, title, message, url)
         
         await bot.send_message(
             chat_id=telegram_id,
@@ -290,6 +319,49 @@ async def handle_kafka_notification(notification_data: dict) -> None:
         
     except Exception as e:
         logging.error(f"Error handling Kafka notification: {e}", exc_info=True)
+
+
+def _format_notification(service: str, notif_type: str, title: str, message: str, url: str) -> str:
+    """Build a rich formatted notification string."""
+    icon = _get_icon(service, notif_type)
+    text = f"{icon} <b>{title}</b>\n"
+    text += "─" * 20 + "\n"
+
+    if message:
+        text += f"{message}\n"
+
+    if url:
+        text += f"\n🔗 <a href='{url}'>Открыть на {service.capitalize()}</a>\n"
+
+    svc_label = service.capitalize() if service else "Неизвестный"
+    type_label = _type_label(notif_type)
+    text += f"\n<i>{svc_label} · {type_label}</i>"
+
+    return text
+
+
+def _get_icon(service: str, notif_type: str) -> str:
+    icons = {
+        "auth": "🔑",
+        "issue": "🐛",
+        "commit": "📝",
+        "pull_request": "🔀",
+        "branch": "🌿",
+        "actions": "⚙️",
+    }
+    return icons.get(notif_type, "🔔")
+
+
+def _type_label(notif_type: str) -> str:
+    labels = {
+        "auth": "Авторизация",
+        "issue": "Issue",
+        "commit": "Commit",
+        "pull_request": "Pull Request",
+        "branch": "Branch",
+        "actions": "GitHub Actions",
+    }
+    return labels.get(notif_type, notif_type or "Уведомление")
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────

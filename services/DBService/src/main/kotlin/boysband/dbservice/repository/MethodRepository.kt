@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository
 @Repository
 interface MethodRepository : JpaRepository<Method, Int> {
     fun findAllByServiceId(serviceId: Int): List<Method>
+    fun findByNameIgnoreCase(name: String): Method?
 }

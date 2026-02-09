@@ -1,5 +1,8 @@
 package boysband.coreservice.config
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.SerializationFeature
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
@@ -26,6 +29,11 @@ class KafkaConfiguration(
     @param:Value($$"${kafka.bootstrap-servers}") private val bootstrapServers: String,
     @param:Value($$"${kafka.consumer.group-id}") private val groupId: String
 ) {
+
+    private fun kafkaObjectMapper(): ObjectMapper = jacksonObjectMapper().apply {
+        registerModule(JavaTimeModule())
+        disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+    }
 
     @Bean
     fun consumerFactory(): ConsumerFactory<String, Any> {
@@ -78,7 +86,7 @@ class KafkaConfiguration(
             ProducerConfig.LINGER_MS_CONFIG to 5
         )
 
-        return DefaultKafkaProducerFactory(props, StringSerializer(), JsonSerializer(jacksonObjectMapper()))
+        return DefaultKafkaProducerFactory(props, StringSerializer(), JsonSerializer(kafkaObjectMapper()))
     }
 
     @Bean
@@ -92,7 +100,7 @@ class KafkaConfiguration(
             ProducerConfig.LINGER_MS_CONFIG to 5
         )
 
-        return DefaultKafkaProducerFactory(props, StringSerializer(), JsonSerializer(jacksonObjectMapper()))
+        return DefaultKafkaProducerFactory(props, StringSerializer(), JsonSerializer(kafkaObjectMapper()))
     }
 
     @Bean
@@ -106,7 +114,7 @@ class KafkaConfiguration(
             ProducerConfig.LINGER_MS_CONFIG to 5
         )
 
-        return DefaultKafkaProducerFactory(props, StringSerializer(), JsonSerializer(jacksonObjectMapper()))
+        return DefaultKafkaProducerFactory(props, StringSerializer(), JsonSerializer(kafkaObjectMapper()))
     }
 
     @Bean
@@ -119,5 +127,9 @@ class KafkaConfiguration(
         producerFactoryTask: ProducerFactory<String, Task>
     ): KafkaTemplate<String, Task> = KafkaTemplate(producerFactoryTask)
 
+    @Bean
+    fun anyKafkaTemplate(
+        producerFactoryAny: ProducerFactory<String, Any>
+    ): KafkaTemplate<String, Any> = KafkaTemplate(producerFactoryAny)
 
 }

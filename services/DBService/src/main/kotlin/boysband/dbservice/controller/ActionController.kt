@@ -2,6 +2,7 @@ package boysband.dbservice.controller
 
 import boysband.dbservice.entity.Action
 import boysband.dbservice.entity.User
+import boysband.dbservice.kafka.SubscriptionProducer
 import boysband.dbservice.repository.ActionRepository
 import boysband.dbservice.repository.MethodRepository
 import boysband.dbservice.repository.ServiceRepository
@@ -19,6 +20,7 @@ class ActionController(
     private val tokenRepository: TokenRepository,
     private val methodRepository: MethodRepository,
     private val serviceRepository: ServiceRepository,
+    private val subscriptionProducer: SubscriptionProducer,
 ) {
 
     @GetMapping
@@ -42,6 +44,59 @@ class ActionController(
     @GetMapping("/service/{serviceId}")
     fun getActionsByServiceId(@PathVariable serviceId: Int): List<Action> {
         return actionRepository.findAllByServiceId(serviceId)
+    }
+
+    // ── Subscribe endpoint (auto-resolves service/method/token by name) ─────
+
+    data class SubscribeRequest(
+        val telegramId: Long = 0,
+        val methodName: String = "",
+        val query: String = "",
+        val serviceName: String = "GitHub",
+        val describe: String = "",
+    )
+
+    @PostMapping("/subscribe")
+    fun subscribe(@RequestBody request: SubscribeRequest): ResponseEntity<Any> {
+        // Find user
+        val user = userRepository.findByIdTgChat(request.telegramId)
+            ?: return ResponseEntity.badRequest()
+                .body(mapOf("error" to "Пользователь не найден. Сначала выполните /start"))
+
+        // Find service by name
+        val service = serviceRepository.findByNameIgnoreCase(request.serviceName)
+            ?: return ResponseEntity.badRequest()
+                .body(mapOf("error" to "Сервис '${request.serviceName}' не найден"))
+
+        // Find method by name
+        val method = methodRepository.findByNameIgnoreCase(request.methodName)
+            ?: return ResponseEntity.badRequest()
+                .body(mapOf("error" to "Метод '${request.methodName}' не найден"))
+
+        // Find user's token (need at least one for GitHub API calls)
+        val tokens = tokenRepository.findAllByUserId(user.id)
+        if (tokens.isEmpty()) {
+            return ResponseEntity.badRequest()
+                .body(mapOf("error" to "Токен не найден. Сначала авторизуйте сервис"))
+        }
+        val token = tokens.first()
+
+        // Create action
+        val savedAction = actionRepository.save(
+            Action(
+                method = method,
+                token = token,
+                user = user,
+                service = service,
+                query = request.query,
+                describe = request.describe,
+            )
+        )
+
+        // Send to Kafka for immediate processing by CoreService
+        subscriptionProducer.sendSubscriptionRequest(savedAction)
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(savedAction)
     }
 
     @PostMapping

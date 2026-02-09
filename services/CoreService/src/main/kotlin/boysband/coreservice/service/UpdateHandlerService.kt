@@ -90,13 +90,10 @@ class UpdateHandlerService(
         val chatId = node.path("chatId").asLong(0L)
         val issueNumber = node.path("issueNumber").asInt(0)
         val title = node.path("title").asText("")
+        val state = node.path("state").asText("")
         val htmlUrl = node.path("htmlUrl").asText("")
         val owner = node.path("owner").asText("")
         val repo = node.path("repo").asText("")
-        val newComments = node.path("newComments").sizeOrZero()
-        val updatedComments = node.path("updatedComments").sizeOrZero()
-        val newEvents = node.path("newEvents").sizeOrZero()
-        val updatedEvents = node.path("updatedEvents").sizeOrZero()
 
         if (chatId == 0L) {
             logger.warn("GitHub issue notification without chatId: $payload")
@@ -104,18 +101,21 @@ class UpdateHandlerService(
         }
 
         val message = buildString {
-            append("$owner/$repo\n")
-            append("Issue #$issueNumber\n")
-            if (newComments + updatedComments + newEvents + updatedEvents > 0) {
-                append("New comments: $newComments, updated comments: $updatedComments\n")
-                append("New events: $newEvents, updated events: $updatedEvents")
-            }
+            append("📦 $owner/$repo\n")
+            append("🔢 Issue #$issueNumber")
+            if (state.isNotBlank()) append(" ($state)")
+            append("\n\n")
+
+            appendComments("💬 Новые комментарии", node.path("newComments"))
+            appendComments("✏️ Обновлённые комментарии", node.path("updatedComments"))
+            appendEvents("📌 Новые события", node.path("newEvents"))
+            appendEvents("🔄 Обновлённые события", node.path("updatedEvents"))
         }.trim()
 
         notificationProducer.sendNotification(
             Notification(
                 chatId = chatId,
-                title = "GitHub Issue #$issueNumber${if (title.isNotBlank()) ": $title" else ""}",
+                title = "Issue #$issueNumber${if (title.isNotBlank()) ": $title" else ""}",
                 message = message,
                 service = "github",
                 type = "issue",
@@ -128,7 +128,7 @@ class UpdateHandlerService(
         val node = parse(payload) ?: return
         val chatId = node.path("chatId").asLong(0L)
         val sha = node.path("sha").asText("")
-        val message = node.path("message").asText("")
+        val commitMessage = node.path("message").asText("")
         val author = node.path("author").asText("")
         val htmlUrl = node.path("htmlUrl").asText("")
         val owner = node.path("owner").asText("")
@@ -139,18 +139,21 @@ class UpdateHandlerService(
             return
         }
 
-        val title = "GitHub Commit ${sha.takeIf { it.isNotBlank() }?.take(7) ?: ""}".trim()
-        val body = buildString {
-            append("$owner/$repo\n")
-            if (author.isNotBlank()) append("Author: $author\n")
-            append(message)
+        val shortSha = sha.takeIf { it.isNotBlank() }?.take(7) ?: ""
+        val message = buildString {
+            append("📦 $owner/$repo\n")
+            if (author.isNotBlank()) append("👤 $author\n")
+            if (commitMessage.isNotBlank()) append("📝 ${commitMessage.take(200)}\n\n")
+
+            appendComments("💬 Новые комментарии", node.path("newComments"))
+            appendComments("✏️ Обновлённые комментарии", node.path("updatedComments"))
         }.trim()
 
         notificationProducer.sendNotification(
             Notification(
                 chatId = chatId,
-                title = title,
-                message = body,
+                title = "Commit $shortSha",
+                message = message,
                 service = "github",
                 type = "commit",
                 url = htmlUrl,
@@ -167,23 +170,36 @@ class UpdateHandlerService(
         val htmlUrl = node.path("htmlUrl").asText("")
         val owner = node.path("owner").asText("")
         val repo = node.path("repo").asText("")
+        val headBranch = node.path("headBranch").asText("")
+        val baseBranch = node.path("baseBranch").asText("")
 
         if (chatId == 0L) {
             logger.warn("GitHub PR notification without chatId: $payload")
             return
         }
 
-        val body = buildString {
-            append("$owner/$repo\n")
-            append("PR #$prNumber")
+        val message = buildString {
+            append("📦 $owner/$repo\n")
+            append("🔢 PR #$prNumber")
             if (state.isNotBlank()) append(" ($state)")
-        }
+            append("\n")
+            if (headBranch.isNotBlank() && baseBranch.isNotBlank()) {
+                append("🌿 $headBranch → $baseBranch\n")
+            }
+            append("\n")
+
+            appendComments("💬 Новые комментарии", node.path("newComments"))
+            appendComments("✏️ Обновлённые комментарии", node.path("updatedComments"))
+            appendEvents("📌 Новые события", node.path("newEvents"))
+            appendEvents("🔄 Обновлённые события", node.path("updatedEvents"))
+            appendShortCommits("📝 Новые коммиты", node.path("newCommits"))
+        }.trim()
 
         notificationProducer.sendNotification(
             Notification(
                 chatId = chatId,
-                title = "GitHub PR #$prNumber${if (title.isNotBlank()) ": $title" else ""}",
-                message = body,
+                title = "PR #$prNumber${if (title.isNotBlank()) ": $title" else ""}",
+                message = message,
                 service = "github",
                 type = "pull_request",
                 url = htmlUrl,
@@ -197,24 +213,23 @@ class UpdateHandlerService(
         val owner = node.path("owner").asText("")
         val repo = node.path("repo").asText("")
         val branchName = node.path("branchName").asText("")
-        val newCommits = node.path("newCommits").sizeOrZero()
 
         if (chatId == 0L) {
             logger.warn("GitHub branch notification without chatId: $payload")
             return
         }
 
-        val body = buildString {
-            append("$owner/$repo\n")
-            append("Branch: $branchName\n")
-            append("New commits: $newCommits")
+        val message = buildString {
+            append("📦 $owner/$repo\n")
+            append("🌿 Branch: $branchName\n\n")
+            appendShortCommits("📝 Новые коммиты", node.path("newCommits"))
         }.trim()
 
         notificationProducer.sendNotification(
             Notification(
                 chatId = chatId,
-                title = "GitHub Branch${if (branchName.isNotBlank()) ": $branchName" else ""}",
-                message = body,
+                title = "Branch${if (branchName.isNotBlank()) ": $branchName" else ""}",
+                message = message,
                 service = "github",
                 type = "branch",
                 url = "",
@@ -228,30 +243,84 @@ class UpdateHandlerService(
         val owner = node.path("owner").asText("")
         val repo = node.path("repo").asText("")
         val workflowId = node.path("workflowId").asText("")
-        val newRuns = node.path("newRuns").sizeOrZero()
-        val updatedRuns = node.path("updatedRuns").sizeOrZero()
 
         if (chatId == 0L) {
             logger.warn("GitHub actions notification without chatId: $payload")
             return
         }
 
-        val body = buildString {
-            append("$owner/$repo\n")
-            if (workflowId.isNotBlank()) append("Workflow: $workflowId\n")
-            append("New runs: $newRuns, updated runs: $updatedRuns")
+        val message = buildString {
+            append("📦 $owner/$repo\n")
+            if (workflowId.isNotBlank()) append("⚙️ Workflow: $workflowId\n")
+            append("\n")
+            appendWorkflowRuns("🆕 Новые запуски", node.path("newRuns"))
+            appendWorkflowRuns("🔄 Обновлённые запуски", node.path("updatedRuns"))
         }.trim()
 
         notificationProducer.sendNotification(
             Notification(
                 chatId = chatId,
                 title = "GitHub Actions${if (workflowId.isNotBlank()) ": $workflowId" else ""}",
-                message = body,
+                message = message,
                 service = "github",
                 type = "actions",
                 url = "",
             )
         )
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private fun StringBuilder.appendComments(header: String, comments: JsonNode) {
+        if (!comments.isArray || comments.isEmpty) return
+        append("$header (${comments.size()}):\n")
+        comments.take(5).forEach { c ->
+            val author = c.path("author").asText("?")
+            val body = c.path("body").asText("").take(120)
+            append("  • [$author]: $body\n")
+        }
+        if (comments.size() > 5) append("  … и ещё ${comments.size() - 5}\n")
+        append("\n")
+    }
+
+    private fun StringBuilder.appendEvents(header: String, events: JsonNode) {
+        if (!events.isArray || events.isEmpty) return
+        append("$header (${events.size()}):\n")
+        events.take(5).forEach { e ->
+            val event = e.path("event").asText("?")
+            val actor = e.path("actor").asText("?")
+            append("  • $event by $actor\n")
+        }
+        if (events.size() > 5) append("  … и ещё ${events.size() - 5}\n")
+        append("\n")
+    }
+
+    private fun StringBuilder.appendShortCommits(header: String, commits: JsonNode) {
+        if (!commits.isArray || commits.isEmpty) return
+        append("$header (${commits.size()}):\n")
+        commits.take(5).forEach { c ->
+            val sha = c.path("sha").asText("").take(7)
+            val msg = c.path("message").asText("").take(80)
+            val author = c.path("author").asText("")
+            append("  • $sha ${msg}${if (author.isNotBlank()) " ($author)" else ""}\n")
+        }
+        if (commits.size() > 5) append("  … и ещё ${commits.size() - 5}\n")
+        append("\n")
+    }
+
+    private fun StringBuilder.appendWorkflowRuns(header: String, runs: JsonNode) {
+        if (!runs.isArray || runs.isEmpty) return
+        append("$header (${runs.size()}):\n")
+        runs.take(5).forEach { r ->
+            val name = r.path("name").asText("?")
+            val runNumber = r.path("runNumber").asInt(0)
+            val status = r.path("status").asText("?")
+            val conclusion = r.path("conclusion").asText("")
+            val statusStr = if (conclusion.isNotBlank()) "$status/$conclusion" else status
+            append("  • #$runNumber $name [$statusStr]\n")
+        }
+        if (runs.size() > 5) append("  … и ещё ${runs.size() - 5}\n")
+        append("\n")
     }
 
     private fun parse(payload: String): JsonNode? {

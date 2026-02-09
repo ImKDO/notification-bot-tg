@@ -9,4 +9,4 @@ kafka:
     auto-offset-reset: earliest
 
 scheduler:
-  check-links: 1m
+  check-links: 10s

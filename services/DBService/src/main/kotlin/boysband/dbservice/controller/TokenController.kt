@@ -2,6 +2,8 @@ package boysband.dbservice.controller
 
 import boysband.dbservice.entity.Token
 import boysband.dbservice.entity.User
+import boysband.dbservice.kafka.TokenValidationProducer
+import boysband.dbservice.kafka.TokenValidationRequestDto
 import boysband.dbservice.repository.TokenRepository
 import boysband.dbservice.repository.UserRepository
 import org.springframework.http.HttpStatus
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.*
 class TokenController(
     private val tokenRepository: TokenRepository,
     private val userRepository: UserRepository,
+    private val tokenValidationProducer: TokenValidationProducer,
 ) {
 
     @GetMapping
@@ -39,7 +42,13 @@ class TokenController(
             ?: return ResponseEntity.badRequest().build()
 
         val persistedUser = userRepository.findByIdTgChat(requestUser.idTgChat)
-            ?: userRepository.save(User(idTgChat = requestUser.idTgChat))
+            ?: try {
+                userRepository.save(User(idTgChat = requestUser.idTgChat))
+            } catch (_: Exception) {
+                // Handle race condition: user may have been created concurrently
+                userRepository.findByIdTgChat(requestUser.idTgChat)
+                    ?: return ResponseEntity.badRequest().build()
+            }
 
         val savedToken = tokenRepository.save(Token(value = token.value, user = persistedUser))
         return ResponseEntity.status(HttpStatus.CREATED).body(savedToken)
@@ -69,5 +78,15 @@ class TokenController(
         } else {
             ResponseEntity.notFound().build()
         }
+    }
+
+    /**
+     * Receive token from BotService and forward to CoreService via Kafka
+     * for validation by GithubService.
+     */
+    @PostMapping("/validate")
+    fun validateToken(@RequestBody request: TokenValidationRequestDto): ResponseEntity<Map<String, String>> {
+        tokenValidationProducer.sendTokenValidationRequest(request)
+        return ResponseEntity.ok(mapOf("status" to "sent_for_validation"))
     }
 }

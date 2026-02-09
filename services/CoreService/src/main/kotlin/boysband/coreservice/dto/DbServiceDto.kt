@@ -25,8 +25,7 @@ data class MethodDto(
 data class TokenDto(
     val id: Int = 0,
     val value: String = "",
-    val userId: Int = 0,
-    val userTgChatId: Int = 0,
+    val user: UserDto? = null,
 )
 
 data class UserDto(

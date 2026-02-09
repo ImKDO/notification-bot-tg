@@ -17,7 +17,7 @@ class NotificationProducer(
         try {
             val message = MessageBuilder
                 .withPayload(notification)
-                .setHeader(KafkaHeaders.TOPIC, "notifications")
+                .setHeader(KafkaHeaders.TOPIC, "Notifications")
                 .build()
 
             sender.send(message).handle { result, ex ->

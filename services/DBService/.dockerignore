@@ -1,0 +1,23 @@
+# Игнорировать build артефакты
+build/
+.gradle/
+bin/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Документация
+*.md
+HELP.md
+
+# Gradle wrapper не нужен для БД
+gradlew
+gradlew.bat
+

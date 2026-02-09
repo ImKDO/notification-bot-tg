@@ -30,7 +30,7 @@ class TaskCreatorService(
     private fun routeTasks(actions: List<ActionDto>): List<Pair<String, Task>> {
         val result = mutableListOf<Pair<String, Task>>()
         actions.forEach { action ->
-            val task = when (action.service.name) {
+            val task = when (action.service.name.lowercase()) {
                 "stackoverflow" -> {
                     Task.StackOverflowTask(
                         link = action.query,
@@ -59,9 +59,9 @@ class TaskCreatorService(
 
                 else -> throw IllegalArgumentException("Unknown service name: ${action.service.name}")
             }
-            result.add(Pair(when {
-                action.service.name == "stackoverflow" -> "stackoverflow"
-                action.service.name == "github" -> "github_request"
+            result.add(Pair(when (action.service.name.lowercase()) {
+                "stackoverflow" -> "stackoverflow"
+                "github" -> "github_request"
                 else -> throw IllegalArgumentException("Unknown service name: ${action.service.name}")
             }, task))
         }

@@ -35,6 +35,11 @@ class UserController(private val userRepository: UserRepository) {
 
     @PostMapping
     fun createUser(@RequestBody user: User): ResponseEntity<User> {
+        // Return existing user if already registered
+        val existing = userRepository.findByIdTgChat(user.idTgChat)
+        if (existing != null) {
+            return ResponseEntity.ok(existing)
+        }
         val savedUser = userRepository.save(user)
         return ResponseEntity.status(HttpStatus.CREATED).body(savedUser)
     }
