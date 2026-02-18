@@ -1,7 +1,7 @@
 package boysband.githubservice.service
 
 import boysband.githubservice.model.utils.Event
-import boysband.githubservice.model.resourse.Issue
+import boysband.githubservice.model.Issue
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.body
