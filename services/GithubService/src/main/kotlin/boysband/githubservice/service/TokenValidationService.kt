@@ -9,10 +9,6 @@ import org.springframework.web.client.RestClient
 class TokenValidationService(
     private val baseUrlClient: RestClient,
 ) {
-    /**
-     * Validate a GitHub token by calling GET /user with the token.
-     * Returns the GitHub username if valid, or null if invalid.
-     */
     fun validateGithubToken(token: String): String? {
         return try {
             val response = baseUrlClient.get()

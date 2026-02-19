@@ -2,20 +2,24 @@ package boysband.dbservice.controller
 
 import boysband.dbservice.entity.Service
 import boysband.dbservice.repository.ServiceRepository
+import boysband.dbservice.service.CachedDataService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/services")
-class ServiceController(private val serviceRepository: ServiceRepository) {
+class ServiceController(
+    private val serviceRepository: ServiceRepository,
+    private val cachedDataService: CachedDataService,
+) {
 
     @GetMapping
-    fun getAllServices(): List<Service> = serviceRepository.findAll()
+    fun getAllServices(): List<Service> = cachedDataService.findAllServices()
 
     @GetMapping("/{id}")
     fun getServiceById(@PathVariable id: Int): ResponseEntity<Service> {
-        val service = serviceRepository.findById(id)
+        val service = cachedDataService.findServiceById(id)
         return if (service.isPresent) {
             ResponseEntity.ok(service.get())
         } else {

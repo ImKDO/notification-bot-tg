@@ -1,83 +1,104 @@
 package boysband.githubservice.cache
 
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
-import java.util.concurrent.ConcurrentHashMap
+import java.time.Duration
 
 /**
- * Кеш для хранения состояния отслеживаемых ресурсов.
+ * Кеш для хранения состояния отслеживаемых ресурсов в Redis.
  * Ключ - уникальный идентификатор ресурса (chatId:owner:repo:type:id)
  * Значение - состояние ресурса (последние ID событий, комментариев и т.д.)
  */
 @Component
-class EventStateCache {
+class EventStateCache(
+    private val redisTemplate: StringRedisTemplate
+) {
 
-    // Хранит последний обработанный ID события для Issue/PR
-    private val lastEventId = ConcurrentHashMap<String, Long>()
+    companion object {
+        private const val PREFIX = "github:cache:"
+        private val TTL: Duration = Duration.ofDays(7)
+    }
 
-    // Хранит последний обработанный ID комментария
-    private val lastCommentId = ConcurrentHashMap<String, Long>()
+    // ── Last Event ID ────────────────────────────────────────────────────────
 
-    // Хранит последний обработанный SHA коммита для Branch
-    private val lastCommitSha = ConcurrentHashMap<String, String>()
+    fun getLastEventId(key: String): Long? =
+        redisTemplate.opsForValue().get("${PREFIX}event_id:$key")?.toLongOrNull()
 
-    // Хранит последний обработанный ID запуска workflow
-    private val lastWorkflowRunId = ConcurrentHashMap<String, Long>()
-
-    // Хранит updatedAt для отслеживания обновлений комментариев
-    private val commentUpdatedAt = ConcurrentHashMap<String, String>()
-
-    // Хранит createdAt для отслеживания обновлений событий (событие с тем же id но новым временем = обновление)
-    private val eventCreatedAt = ConcurrentHashMap<String, String>()
-
-    // Хранит статус workflow run для отслеживания изменений (in_progress -> completed)
-    private val workflowRunStatus = ConcurrentHashMap<String, String>()
-
-    fun getLastEventId(key: String): Long? = lastEventId[key]
     fun setLastEventId(key: String, id: Long) {
-        lastEventId[key] = id
+        redisTemplate.opsForValue().set("${PREFIX}event_id:$key", id.toString(), TTL)
     }
 
-    fun getLastCommentId(key: String): Long? = lastCommentId[key]
+    // ── Last Comment ID ──────────────────────────────────────────────────────
+
+    fun getLastCommentId(key: String): Long? =
+        redisTemplate.opsForValue().get("${PREFIX}comment_id:$key")?.toLongOrNull()
+
     fun setLastCommentId(key: String, id: Long) {
-        lastCommentId[key] = id
+        redisTemplate.opsForValue().set("${PREFIX}comment_id:$key", id.toString(), TTL)
     }
 
-    fun getLastCommitSha(key: String): String? = lastCommitSha[key]
+    // ── Last Commit SHA ──────────────────────────────────────────────────────
+
+    fun getLastCommitSha(key: String): String? =
+        redisTemplate.opsForValue().get("${PREFIX}commit_sha:$key")
+
     fun setLastCommitSha(key: String, sha: String) {
-        lastCommitSha[key] = sha
+        redisTemplate.opsForValue().set("${PREFIX}commit_sha:$key", sha, TTL)
     }
 
-    fun getLastWorkflowRunId(key: String): Long? = lastWorkflowRunId[key]
+    // ── Last Workflow Run ID ─────────────────────────────────────────────────
+
+    fun getLastWorkflowRunId(key: String): Long? =
+        redisTemplate.opsForValue().get("${PREFIX}workflow_run_id:$key")?.toLongOrNull()
+
     fun setLastWorkflowRunId(key: String, id: Long) {
-        lastWorkflowRunId[key] = id
+        redisTemplate.opsForValue().set("${PREFIX}workflow_run_id:$key", id.toString(), TTL)
     }
 
-    fun getCommentUpdatedAt(key: String): String? = commentUpdatedAt[key]
+    // ── Comment Updated At ───────────────────────────────────────────────────
+
+    fun getCommentUpdatedAt(key: String): String? =
+        redisTemplate.opsForValue().get("${PREFIX}comment_updated:$key")
+
     fun setCommentUpdatedAt(key: String, updatedAt: String) {
-        commentUpdatedAt[key] = updatedAt
+        redisTemplate.opsForValue().set("${PREFIX}comment_updated:$key", updatedAt, TTL)
     }
 
-    fun getEventCreatedAt(key: String): String? = eventCreatedAt[key]
+    // ── Event Created At ─────────────────────────────────────────────────────
+
+    fun getEventCreatedAt(key: String): String? =
+        redisTemplate.opsForValue().get("${PREFIX}event_created:$key")
+
     fun setEventCreatedAt(key: String, createdAt: String) {
-        eventCreatedAt[key] = createdAt
+        redisTemplate.opsForValue().set("${PREFIX}event_created:$key", createdAt, TTL)
     }
 
-    fun getWorkflowRunStatus(key: String): String? = workflowRunStatus[key]
+    // ── Workflow Run Status ──────────────────────────────────────────────────
+
+    fun getWorkflowRunStatus(key: String): String? =
+        redisTemplate.opsForValue().get("${PREFIX}workflow_status:$key")
+
     fun setWorkflowRunStatus(key: String, status: String) {
-        workflowRunStatus[key] = status
+        redisTemplate.opsForValue().set("${PREFIX}workflow_status:$key", status, TTL)
     }
+
+    // ── Utility ──────────────────────────────────────────────────────────────
 
     fun buildKey(chatId: Long, owner: String, repo: String, type: String, resourceId: String): String {
         return "$chatId:$owner:$repo:$type:$resourceId"
     }
 
     fun clearState(key: String) {
-        lastEventId.remove(key)
-        lastCommentId.remove(key)
-        lastCommitSha.remove(key)
-        lastWorkflowRunId.remove(key)
-        commentUpdatedAt.remove(key)
-        eventCreatedAt.remove(key)
-        workflowRunStatus.remove(key)
+        val keysToDelete = listOf(
+            "${PREFIX}event_id:$key",
+            "${PREFIX}comment_id:$key",
+            "${PREFIX}commit_sha:$key",
+            "${PREFIX}workflow_run_id:$key",
+            "${PREFIX}comment_updated:$key",
+            "${PREFIX}event_created:$key",
+            "${PREFIX}workflow_status:$key",
+        )
+        redisTemplate.delete(keysToDelete)
     }
 }
+

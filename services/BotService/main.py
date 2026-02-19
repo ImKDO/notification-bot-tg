@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from db_client import DBClient
 from kafka_consumer import NotificationConsumer
+from redis_cache import RedisCache
 
 
 async def _safe_answer(callback: CallbackQuery) -> None:
@@ -37,6 +38,7 @@ dp = Dispatcher()
 router = Router()
 db = DBClient()
 kafka_consumer = NotificationConsumer()
+cache = RedisCache()
 
 
 # ── FSM States ───────────────────────────────────────────────────────────────
@@ -335,6 +337,8 @@ async def process_resource_link(message: Message, state: FSMContext) -> None:
                 service_name=service_name,
                 describe=label,
             )
+        # Invalidate subscription cache after new subscription
+        await cache.invalidate_subscriptions(message.from_user.id)
         await message.answer(
             f"⏳ Подписка отправлена на обработку...\n\n"
             f"Сервис: {service_name}\n"
@@ -451,8 +455,12 @@ def _format_subscription_list(actions: list[dict]) -> tuple[str, InlineKeyboardM
 @router.callback_query(F.data == "menu:my_subs")
 async def menu_my_subs(callback: CallbackQuery) -> None:
     try:
-        async with db:
-            actions = await db.get_actions_by_telegram_id(callback.from_user.id)
+        # Try Redis cache first
+        actions = await cache.get_subscriptions(callback.from_user.id)
+        if actions is None:
+            async with db:
+                actions = await db.get_actions_by_telegram_id(callback.from_user.id)
+            await cache.set_subscriptions(callback.from_user.id, actions)
         text, kb = _format_subscription_list(actions)
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except httpx.ConnectError:
@@ -477,6 +485,8 @@ async def unsubscribe_action(callback: CallbackQuery) -> None:
             await db.delete_action(action_id)
             # Refresh the list
             actions = await db.get_actions_by_telegram_id(callback.from_user.id)
+        # Invalidate subscription cache
+        await cache.invalidate_subscriptions(callback.from_user.id)
         text, kb = _format_subscription_list(actions)
         text = "✅ Подписка удалена!\n\n" + text
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -587,10 +597,16 @@ async def main() -> None:
     dp.include_router(router)
     logging.basicConfig(level=logging.INFO)
     
-    # Start bot and Kafka consumer in parallel
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(dp.start_polling(bot))
-        tg.create_task(kafka_consumer.start(handle_kafka_notification))
+    # Connect Redis cache
+    await cache.connect()
+    
+    try:
+        # Start bot and Kafka consumer in parallel
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(dp.start_polling(bot))
+            tg.create_task(kafka_consumer.start(handle_kafka_notification))
+    finally:
+        await cache.close()
 
 
 if __name__ == "__main__":

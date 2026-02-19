@@ -58,7 +58,6 @@ class PullRequestProcessing(
     }
 
     fun getComments(pullRequest: PullRequest, token: String): List<Comment>? {
-        // GitHub API: PR conversation comments live under /issues/{number}/comments, not /pulls/{number}/comments
         return try {
             utilsProcessing.baseGithubIssueStyleRequest(
                 pullRequest.owner,
@@ -78,7 +77,6 @@ class PullRequestProcessing(
     }
 
     fun getReviewComments(pullRequest: PullRequest, token: String): List<Comment>? {
-        // GitHub API: /pulls/{number}/comments returns inline code review comments
         return try {
             utilsProcessing.baseGithubRequestUrl(pullRequest, "/comments", token)
                 ?.onStatus({ it.isError }) { _, response ->
@@ -92,7 +90,6 @@ class PullRequestProcessing(
     }
 
     fun getEvents(pullRequest: PullRequest, token: String): List<Event>? {
-        // GitHub API: PR events live under /issues/{number}/events, not /pulls/{number}/events
         return try {
             utilsProcessing.baseGithubIssueStyleRequest(
                 pullRequest.owner,

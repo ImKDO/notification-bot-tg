@@ -13,4 +13,5 @@ dependencies = [
     "tqdm>=4.65.0",
     "sentencepiece>=0.1.99",
     "protobuf>=3.20.0",
+    "marimo>=0.19.11",
 ]

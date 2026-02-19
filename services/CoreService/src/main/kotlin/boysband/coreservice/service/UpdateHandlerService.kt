@@ -8,17 +8,15 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.ZonedDateTime
-import java.util.concurrent.ConcurrentHashMap
 
 @Service
 class UpdateHandlerService(
     private val notificationProducer: NotificationProducer,
     private val dbServiceClient: DbServiceClient,
+    private val redisCacheService: RedisCacheService,
 ) {
 
     private val objectMapper = jacksonObjectMapper()
-
-    private val lastNotifiedDate = ConcurrentHashMap<Int, ZonedDateTime>()
 
     suspend fun handleUpdate(topic: String, payload: String) {
         when (topic) {
@@ -69,7 +67,7 @@ class UpdateHandlerService(
             return
         }
 
-        val lastNotified = lastNotifiedDate[actionId]
+        val lastNotified = redisCacheService.getLastNotifiedDate(actionId)
         if (lastNotified != null && !creationDate.isAfter(lastNotified)) {
             return
         }
@@ -82,12 +80,12 @@ class UpdateHandlerService(
         if (action != null) {
             val currentLastCheck = action.lastCheckDate
             if (!creationDate.isAfter(currentLastCheck)) {
-                lastNotifiedDate[actionId] = currentLastCheck  // seed cache
+                redisCacheService.setLastNotifiedDate(actionId, currentLastCheck)  // seed cache
                 return
             }
         }
 
-        lastNotifiedDate[actionId] = creationDate
+        redisCacheService.setLastNotifiedDate(actionId, creationDate)
 
         val typeLabel = when (type) {
             "new_comment" -> "Новый комментарий"

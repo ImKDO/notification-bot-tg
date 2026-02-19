@@ -23,6 +23,16 @@ services:
             KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
             KAFKA_NUM_PARTITIONS: 3
     
+    redis:
+        image: redis:7-alpine
+        container_name: redis
+        restart: always
+        ports:
+            - "6379:6379"
+        volumes:
+            - redis_data:/data
+        command: redis-server --appendonly yes
+
     postgres:
         image: postgres:15
         container_name: postgres
@@ -38,3 +48,4 @@ services:
 
 volumes:
     postgres_data:
+    redis_data:

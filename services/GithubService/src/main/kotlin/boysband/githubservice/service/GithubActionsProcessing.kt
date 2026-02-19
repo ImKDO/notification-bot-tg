@@ -66,7 +66,6 @@ class GithubActionsProcessing(
             if (run.id > lastRunId) {
                 newRuns.add(run)
             } else {
-                // Проверяем, изменился ли статус (например, in_progress -> completed)
                 val cachedStatus = eventStateCache.getWorkflowRunStatus("$cacheKey:run:${run.id}")
                 val currentStatus = "${run.status}:${run.conclusion ?: "null"}"
                 if (cachedStatus != null && cachedStatus != currentStatus) {

@@ -23,7 +23,6 @@ class CommitProcessing(
 
         val (newComments, updatedComments) = filterNewAndUpdatedComments(cacheKey, comments)
 
-        // Обновляем кеш
         updateCache(cacheKey, comments)
 
         return CommitEventResponse(

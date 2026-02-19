@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 
-def _load_env() -> None:
+def load_env() -> None:
     """Load .env file from the project root (if present)."""
     env_file = Path(__file__).parent / ".env"
     if not env_file.exists():
@@ -29,7 +29,7 @@ def _load_env() -> None:
                 os.environ[key.strip()] = value.strip()
 
 
-def _hf_login() -> None:
+def hf_login() -> None:
     """Login to HuggingFace if HF_TOKEN is set."""
     token = os.getenv("HF_TOKEN")
     if token and token not in ("your_huggingface_token_here", "YOUR_HF_TOKEN_HERE"):
@@ -142,8 +142,8 @@ def main() -> None:
         parser.print_help()
         return
 
-    _load_env()
-    _hf_login()
+    load_env()
+    hf_login()
 
     dispatch = {
         "data": cmd_data,

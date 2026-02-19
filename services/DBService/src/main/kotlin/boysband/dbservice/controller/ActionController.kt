@@ -8,6 +8,7 @@ import boysband.dbservice.repository.MethodRepository
 import boysband.dbservice.repository.ServiceRepository
 import boysband.dbservice.repository.TokenRepository
 import boysband.dbservice.repository.UserRepository
+import boysband.dbservice.service.CachedDataService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -21,14 +22,15 @@ class ActionController(
     private val methodRepository: MethodRepository,
     private val serviceRepository: ServiceRepository,
     private val subscriptionProducer: SubscriptionProducer,
+    private val cachedDataService: CachedDataService,
 ) {
 
     @GetMapping
-    fun getAllActions(): List<Action> = actionRepository.findAll()
+    fun getAllActions(): List<Action> = cachedDataService.findAllActions()
 
     @GetMapping("/{id}")
     fun getActionById(@PathVariable id: Int): ResponseEntity<Action> {
-        val action = actionRepository.findById(id)
+        val action = cachedDataService.findActionById(id)
         return if (action.isPresent) {
             ResponseEntity.ok(action.get())
         } else {
@@ -38,17 +40,17 @@ class ActionController(
 
     @GetMapping("/user/{userId}")
     fun getActionsByUserId(@PathVariable userId: Int): List<Action> {
-        return actionRepository.findAllByUserId(userId)
+        return cachedDataService.findActionsByUserId(userId)
     }
 
     @GetMapping("/service/{serviceId}")
     fun getActionsByServiceId(@PathVariable serviceId: Int): List<Action> {
-        return actionRepository.findAllByServiceId(serviceId)
+        return cachedDataService.findActionsByServiceId(serviceId)
     }
 
     @GetMapping("/telegram/{telegramId}")
     fun getActionsByTelegramId(@PathVariable telegramId: Long): List<Action> {
-        return actionRepository.findAllByUserIdTgChat(telegramId)
+        return cachedDataService.findActionsByTelegramId(telegramId)
     }
 
 
@@ -62,11 +64,11 @@ class ActionController(
 
     @PostMapping("/subscribe")
     fun subscribe(@RequestBody request: SubscribeRequest): ResponseEntity<Any> {
-        val user = userRepository.findByIdTgChat(request.telegramId)
+        val user = cachedDataService.findUserByTgChat(request.telegramId)
             ?: return ResponseEntity.badRequest()
                 .body(mapOf("error" to "Пользователь не найден. Сначала выполните /start"))
 
-        val service = serviceRepository.findByNameIgnoreCase(request.serviceName)
+        val service = cachedDataService.findServiceByName(request.serviceName)
             ?: return ResponseEntity.badRequest()
                 .body(mapOf("error" to "Сервис '${request.serviceName}' не найден"))
 
@@ -75,17 +77,17 @@ class ActionController(
                 .body(mapOf("error" to "Метод '${request.methodName}' не найден"))
 
         val token = if (service.name.equals("GitHub", ignoreCase = true)) {
-            val tokens = tokenRepository.findAllByUserId(user.id)
+            val tokens = cachedDataService.findTokensByUserId(user.id)
             if (tokens.isEmpty()) {
                 return ResponseEntity.badRequest()
                     .body(mapOf("error" to "Токен не найден. Сначала авторизуйте сервис"))
             }
             tokens.first()
         } else {
-            tokenRepository.findAllByUserId(user.id).firstOrNull()
+            cachedDataService.findTokensByUserId(user.id).firstOrNull()
         }
 
-        val savedAction = actionRepository.save(
+        val savedAction = cachedDataService.saveAction(
             Action(
                 method = method,
                 token = token,
@@ -107,8 +109,8 @@ class ActionController(
             ?: return ResponseEntity.badRequest().build()
 
         val persistedUser = when {
-            requestUser.idTgChat != 0L -> userRepository.findByIdTgChat(requestUser.idTgChat)
-                ?: userRepository.save(User(idTgChat = requestUser.idTgChat))
+            requestUser.idTgChat != 0L -> cachedDataService.findUserByTgChat(requestUser.idTgChat)
+                ?: cachedDataService.saveUser(User(idTgChat = requestUser.idTgChat))
             requestUser.id != 0 -> userRepository.findById(requestUser.id).orElse(null)
             else -> null
         } ?: return ResponseEntity.badRequest().build()
@@ -127,7 +129,7 @@ class ActionController(
         val persistedService = serviceRepository.findById(requestServiceId).orElse(null)
             ?: return ResponseEntity.badRequest().build()
 
-        val savedAction = actionRepository.save(
+        val savedAction = cachedDataService.saveAction(
             Action(
                 id = action.id,
                 method = persistedMethod,
@@ -145,13 +147,13 @@ class ActionController(
 
     @PutMapping("/{id}")
     fun updateAction(@PathVariable id: Int, @RequestBody action: Action): ResponseEntity<Action> {
-        return if (actionRepository.existsById(id)) {
+        return if (cachedDataService.existsAction(id)) {
             val requestUser = action.user
                 ?: return ResponseEntity.badRequest().build()
 
             val persistedUser = when {
-                requestUser.idTgChat != 0L -> userRepository.findByIdTgChat(requestUser.idTgChat)
-                    ?: userRepository.save(User(idTgChat = requestUser.idTgChat))
+                requestUser.idTgChat != 0L -> cachedDataService.findUserByTgChat(requestUser.idTgChat)
+                    ?: cachedDataService.saveUser(User(idTgChat = requestUser.idTgChat))
                 requestUser.id != 0 -> userRepository.findById(requestUser.id).orElse(null)
                 else -> null
             } ?: return ResponseEntity.badRequest().build()
@@ -174,7 +176,7 @@ class ActionController(
             val persistedService = serviceRepository.findById(requestServiceId).orElse(null)
                 ?: return ResponseEntity.badRequest().build()
 
-            val savedAction = actionRepository.save(
+            val savedAction = cachedDataService.saveAction(
                 Action(
                     id = id,
                     method = persistedMethod,
@@ -195,8 +197,8 @@ class ActionController(
 
     @DeleteMapping("/{id}")
     fun deleteAction(@PathVariable id: Int): ResponseEntity<Void> {
-        return if (actionRepository.existsById(id)) {
-            actionRepository.deleteById(id)
+        return if (cachedDataService.existsAction(id)) {
+            cachedDataService.deleteAction(id)
             ResponseEntity.noContent().build()
         } else {
             ResponseEntity.notFound().build()

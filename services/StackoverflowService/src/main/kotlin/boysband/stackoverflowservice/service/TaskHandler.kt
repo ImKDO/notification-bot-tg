@@ -5,14 +5,12 @@ import boysband.stackoverflowservice.dto.Task
 import boysband.stackoverflowservice.dto.Update
 import boysband.stackoverflowservice.kafka.UpdateProducer
 import org.apache.kafka.clients.producer.internals.Sender
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.stereotype.Service
 import java.time.ZonedDateTime
 
 @Service
 class TaskHandler(
     private val sender: UpdateProducer,
-    @param:Qualifier("retryingRealization")
     private val client: StackoverflowClient,
 ) {
     private val logger = org.slf4j.LoggerFactory.getLogger(TaskHandler::class.java)

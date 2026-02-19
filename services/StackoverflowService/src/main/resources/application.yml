@@ -3,6 +3,11 @@ spring:
     name: StackoverflowService
   main:
     web-application-type: none
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 5000
 
 kafka:
   bootstrap-servers: localhost:9092

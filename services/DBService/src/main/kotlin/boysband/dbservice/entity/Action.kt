@@ -14,15 +14,15 @@ class Action(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Int = 0,
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "id_method", nullable = false)
     val method: Method? = null,
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "id_token", nullable = true)
     val token: Token? = null,
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "id_tg_chat", referencedColumnName = "id_tg_chat", nullable = false)
     @JsonIgnoreProperties(
         value = [
@@ -39,7 +39,7 @@ class Action(
     )
     val user: User? = null,
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "id_service", nullable = false)
     val service: Service? = null,
 
