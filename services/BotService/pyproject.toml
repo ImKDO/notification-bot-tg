@@ -23,6 +23,5 @@ py-modules = [
     "db_client",
     "kafka_consumer",
     "kafka_producer_example",
-    "ml_client",
     "redis_cache",
 ]

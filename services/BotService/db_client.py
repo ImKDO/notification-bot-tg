@@ -243,3 +243,41 @@ class DBClient:
         )
         response.raise_for_status()
         return response.json()
+
+    # ── Summary (ML via microservice pipeline) ───────────────────────────────
+
+    async def request_summary(
+        self,
+        telegram_id: int,
+        notifications: list[str],
+    ) -> dict[str, Any]:
+        """Request ML summary via DBService → Kafka → CoreService → MLService pipeline"""
+        response = await self.client.post(
+            "summary-reposts/request",
+            json={
+                "telegramId": telegram_id,
+                "notifications": notifications,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_latest_summary(
+        self,
+        telegram_id: int,
+    ) -> Optional[dict[str, Any]]:
+        """Get the latest summary for user by telegram id"""
+        response = await self.client.get(f"summary-reposts/telegram/{telegram_id}/latest")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()
+
+    async def get_summaries_by_telegram_id(
+        self,
+        telegram_id: int,
+    ) -> list[dict[str, Any]]:
+        """Get all summaries for user by telegram id"""
+        response = await self.client.get(f"summary-reposts/telegram/{telegram_id}")
+        response.raise_for_status()
+        return response.json()

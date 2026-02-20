@@ -141,3 +141,13 @@ class RedisCache:
             await self._redis.delete(f"bot:notif_history:{telegram_id}")
         except Exception as e:
             logger.debug(f"Redis clear_notification_history error: {e}")
+
+    async def get_daily_summary(self, telegram_id: int) -> str | None:
+        if not self._redis:
+            return None
+        try:
+            value = await self._redis.get(f"bot:daily_summary:{telegram_id}")
+            return value
+        except Exception as e:
+            logger.debug(f"Redis get_daily_summary error: {e}")
+            return None

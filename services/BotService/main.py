@@ -19,7 +19,6 @@ from dotenv import load_dotenv
 
 from db_client import DBClient
 from kafka_consumer import NotificationConsumer
-from ml_client import MLClient
 from redis_cache import RedisCache
 
 
@@ -40,7 +39,6 @@ router = Router()
 db = DBClient()
 kafka_consumer = NotificationConsumer()
 cache = RedisCache()
-ml = MLClient()
 
 
 # ── FSM States ───────────────────────────────────────────────────────────────
@@ -57,6 +55,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="1. Авторизовать сервис", callback_data="menu:auth")],
         [InlineKeyboardButton(text="2. Подписки", callback_data="menu:subscribe")],
         [InlineKeyboardButton(text="📊 Сводка уведомлений", callback_data="menu:summary")],
+        [InlineKeyboardButton(text="📅 Дневной дайджест", callback_data="menu:digest")],
     ])
 
 
@@ -520,7 +519,7 @@ async def unsubscribe_action(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:summary")
 async def menu_summary(callback: CallbackQuery) -> None:
-    """Fetch recent notifications from Redis, send to MLService for summary."""
+    """Send summary request through microservice pipeline (DBService → Kafka → CoreService → MLService)."""
     await _safe_answer(callback)
     telegram_id = callback.from_user.id
 
@@ -537,35 +536,39 @@ async def menu_summary(callback: CallbackQuery) -> None:
         )
         return
 
-    # Show loading indicator
-    await callback.message.edit_text(
-        "📊 <b>Сводка уведомлений</b>\n\n"
-        f"⏳ Анализирую {len(notifications)} уведомлений с помощью AI…",
-        parse_mode="HTML",
-    )
-
-    summary = await ml.summarize(notifications)
-    if summary is None:
+    try:
+        async with db:
+            await db.request_summary(
+                telegram_id=telegram_id,
+                notifications=notifications,
+            )
         await callback.message.edit_text(
             "📊 <b>Сводка уведомлений</b>\n\n"
-            "⚠️ ML-сервис недоступен. Попробуйте позже.\n\n"
-            f"<i>Уведомлений в истории: {len(notifications)}</i>",
+            f"⏳ Запрос отправлен! Анализирую {len(notifications)} уведомлений с помощью AI…\n\n"
+            "Результат придёт в уведомлении.",
+            parse_mode="HTML",
+            reply_markup=summary_kb(),
+        )
+    except httpx.ConnectError:
+        await callback.message.edit_text(
+            "📊 <b>Сводка уведомлений</b>\n\n"
+            "⚠️ DBService недоступен. Попробуйте позже.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Повторить", callback_data="menu:summary")],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
             ]),
         )
-        return
-
-    await callback.message.edit_text(
-        f"📊 <b>Сводка уведомлений</b>\n"
-        f"{'─' * 20}\n"
-        f"{summary}\n\n"
-        f"<i>На основе {len(notifications)} последних уведомлений</i>",
-        parse_mode="HTML",
-        reply_markup=summary_kb(),
-    )
+    except Exception as e:
+        logging.error(f"Failed to request summary: {e}")
+        await callback.message.edit_text(
+            "📊 <b>Сводка уведомлений</b>\n\n"
+            "⚠️ Ошибка при отправке запроса. Попробуйте позже.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+            ]),
+        )
 
 
 @router.callback_query(F.data == "summary:clear")
@@ -581,6 +584,37 @@ async def summary_clear(callback: CallbackQuery) -> None:
         ]),
     )
     await _safe_answer(callback)
+
+
+@router.callback_query(F.data == "menu:digest")
+async def menu_digest(callback: CallbackQuery) -> None:
+    await _safe_answer(callback)
+    telegram_id = callback.from_user.id
+
+    daily = await cache.get_daily_summary(telegram_id)
+    if daily:
+        await callback.message.edit_text(
+            f"📅 <b>Дневной дайджест</b>\n"
+            f"{'\u2500' * 20}\n"
+            f"{daily}\n\n"
+            f"<i>Сгенерировано автоматически (Airflow + ML)</i>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+            ]),
+        )
+    else:
+        await callback.message.edit_text(
+            "📅 <b>Дневной дайджест</b>\n\n"
+            "Дайджест пока не сформирован.\n"
+            "Он генерируется автоматически каждый день в 09:00 UTC.\n\n"
+            "<i>Используйте \"📊 Сводка\" для моментального анализа.</i>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Сводка сейчас", callback_data="menu:summary")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+            ]),
+        )
 
 
 # ── Kafka notification handler ──────────────────────────────────────────────
