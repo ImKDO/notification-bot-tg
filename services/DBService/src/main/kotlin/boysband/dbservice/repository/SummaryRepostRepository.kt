@@ -7,4 +7,6 @@ import org.springframework.stereotype.Repository
 @Repository
 interface SummaryRepostRepository : JpaRepository<SummaryRepost, Int> {
     fun findAllByUserId(userId: Int): List<SummaryRepost>
+    fun findAllByUserIdTgChat(idTgChat: Long): List<SummaryRepost>
+    fun findFirstByUserIdTgChatOrderByDateDesc(idTgChat: Long): SummaryRepost?
 }

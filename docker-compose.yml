@@ -46,6 +46,34 @@ services:
         volumes:
             - postgres_data:/var/lib/postgresql/data
 
+    airflow:
+        image: apache/airflow:2.9.3-python3.11
+        container_name: airflow
+        restart: always
+        environment:
+            AIRFLOW__CORE__EXECUTOR: LocalExecutor
+            AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/notification_bot
+            AIRFLOW__CORE__FERNET_KEY: ""
+            AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+            AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+            AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+            REDIS_URL: redis://redis:6379
+            ML_SERVICE_URL: http://host.docker.internal:8042
+            PARQUET_DIR: /opt/airflow/data/parquet
+            _PIP_ADDITIONAL_REQUIREMENTS: "pyarrow>=17.0 redis>=5.0 httpx>=0.27 python-dotenv>=1.0"
+        ports:
+            - "8043:8080"
+        volumes:
+            - ./services/AirflowService/dags:/opt/airflow/dags
+            - ./services/AirflowService/config.py:/opt/airflow/dags/config.py
+            - ./services/AirflowService/arrow_utils.py:/opt/airflow/dags/arrow_utils.py
+            - airflow_data:/opt/airflow/data
+        depends_on:
+            - postgres
+            - redis
+        command: airflow standalone
+
 volumes:
     postgres_data:
     redis_data:
+    airflow_data:
