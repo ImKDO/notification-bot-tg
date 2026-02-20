@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from db_client import DBClient
 from kafka_consumer import NotificationConsumer
+from ml_client import MLClient
 from redis_cache import RedisCache
 
 
@@ -39,6 +40,7 @@ router = Router()
 db = DBClient()
 kafka_consumer = NotificationConsumer()
 cache = RedisCache()
+ml = MLClient()
 
 
 # ── FSM States ───────────────────────────────────────────────────────────────
@@ -54,6 +56,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="1. Авторизовать сервис", callback_data="menu:auth")],
         [InlineKeyboardButton(text="2. Подписки", callback_data="menu:subscribe")],
+        [InlineKeyboardButton(text="📊 Сводка уведомлений", callback_data="menu:summary")],
     ])
 
 
@@ -93,6 +96,13 @@ def new_subscribe_kb() -> InlineKeyboardMarkup:
 
 def notification_period_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+    ])
+
+
+def summary_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Очистить историю", callback_data="summary:clear")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
     ])
 
@@ -506,6 +516,73 @@ async def unsubscribe_action(callback: CallbackQuery) -> None:
 
 
 
+# ── Summary (ML) handlers ────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "menu:summary")
+async def menu_summary(callback: CallbackQuery) -> None:
+    """Fetch recent notifications from Redis, send to MLService for summary."""
+    await _safe_answer(callback)
+    telegram_id = callback.from_user.id
+
+    notifications = await cache.get_notification_history(telegram_id, limit=20)
+    if not notifications:
+        await callback.message.edit_text(
+            "📊 <b>Сводка уведомлений</b>\n\n"
+            "У вас пока нет уведомлений для анализа.\n"
+            "Сводка формируется из последних полученных уведомлений.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+            ]),
+        )
+        return
+
+    # Show loading indicator
+    await callback.message.edit_text(
+        "📊 <b>Сводка уведомлений</b>\n\n"
+        f"⏳ Анализирую {len(notifications)} уведомлений с помощью AI…",
+        parse_mode="HTML",
+    )
+
+    summary = await ml.summarize(notifications)
+    if summary is None:
+        await callback.message.edit_text(
+            "📊 <b>Сводка уведомлений</b>\n\n"
+            "⚠️ ML-сервис недоступен. Попробуйте позже.\n\n"
+            f"<i>Уведомлений в истории: {len(notifications)}</i>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Повторить", callback_data="menu:summary")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+            ]),
+        )
+        return
+
+    await callback.message.edit_text(
+        f"📊 <b>Сводка уведомлений</b>\n"
+        f"{'─' * 20}\n"
+        f"{summary}\n\n"
+        f"<i>На основе {len(notifications)} последних уведомлений</i>",
+        parse_mode="HTML",
+        reply_markup=summary_kb(),
+    )
+
+
+@router.callback_query(F.data == "summary:clear")
+async def summary_clear(callback: CallbackQuery) -> None:
+    """Clear notification history for this user."""
+    await cache.clear_notification_history(callback.from_user.id)
+    await callback.message.edit_text(
+        "📊 <b>Сводка уведомлений</b>\n\n"
+        "✅ История уведомлений очищена.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back:main")],
+        ]),
+    )
+    await _safe_answer(callback)
+
+
 # ── Kafka notification handler ──────────────────────────────────────────────
 
 async def handle_kafka_notification(notification_data: dict) -> None:
@@ -526,7 +603,13 @@ async def handle_kafka_notification(notification_data: dict) -> None:
             return
         
         text = _format_notification(service, notif_type, title, message, url)
-        
+
+        # Store notification in Redis history for ML summary
+        plain_text = f"[{service}/{notif_type}] {title}"
+        if message:
+            plain_text += f": {message[:300]}"
+        await cache.push_notification(telegram_id, plain_text)
+
         await bot.send_message(
             chat_id=telegram_id,
             text=text,

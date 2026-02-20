@@ -13,11 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class RedisCache:
-    """Redis cache client for BotService.
-
-    Caches user data and subscription lists fetched from DBService
-    to reduce HTTP calls and improve response time.
-    """
 
     def __init__(self, url: str = REDIS_URL, default_ttl: int = 120):
         self.url = url
@@ -25,7 +20,6 @@ class RedisCache:
         self._redis = None
 
     async def connect(self) -> None:
-        """Initialize Redis connection."""
         try:
             import redis.asyncio as aioredis
             self._redis = aioredis.from_url(
@@ -43,7 +37,6 @@ class RedisCache:
             self._redis = None
 
     async def close(self) -> None:
-        """Close Redis connection."""
         if self._redis:
             await self._redis.close()
 
@@ -51,10 +44,7 @@ class RedisCache:
     def available(self) -> bool:
         return self._redis is not None
 
-    # ── Generic operations ────────────────────────────────────────────────────
-
     async def get(self, key: str) -> Optional[Any]:
-        """Get a cached value by key, returns deserialized JSON or None."""
         if not self._redis:
             return None
         try:
@@ -67,7 +57,6 @@ class RedisCache:
             return None
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
-        """Cache a value as JSON with optional TTL (seconds)."""
         if not self._redis:
             return
         try:
@@ -77,7 +66,6 @@ class RedisCache:
             logger.debug(f"Redis set error for {key}: {e}")
 
     async def delete(self, key: str) -> None:
-        """Delete a cached key."""
         if not self._redis:
             return
         try:
@@ -86,7 +74,6 @@ class RedisCache:
             logger.debug(f"Redis delete error for {key}: {e}")
 
     async def delete_pattern(self, pattern: str) -> None:
-        """Delete all keys matching a pattern."""
         if not self._redis:
             return
         try:
@@ -98,8 +85,6 @@ class RedisCache:
         except Exception as e:
             logger.debug(f"Redis delete_pattern error for {pattern}: {e}")
 
-    # ── User cache ────────────────────────────────────────────────────────────
-
     async def get_user(self, telegram_id: int) -> Optional[dict]:
         return await self.get(f"user:{telegram_id}")
 
@@ -109,8 +94,6 @@ class RedisCache:
     async def invalidate_user(self, telegram_id: int) -> None:
         await self.delete(f"user:{telegram_id}")
 
-    # ── Subscriptions cache ───────────────────────────────────────────────────
-
     async def get_subscriptions(self, telegram_id: int) -> Optional[list]:
         return await self.get(f"subs:{telegram_id}")
 
@@ -119,3 +102,42 @@ class RedisCache:
 
     async def invalidate_subscriptions(self, telegram_id: int) -> None:
         await self.delete(f"subs:{telegram_id}")
+
+    async def push_notification(
+        self,
+        telegram_id: int,
+        text: str,
+        max_stored: int = 50,
+    ) -> None:
+        if not self._redis:
+            return
+        key = f"bot:notif_history:{telegram_id}"
+        try:
+            await self._redis.lpush(key, text)
+            await self._redis.ltrim(key, 0, max_stored - 1)
+            await self._redis.expire(key, 60 * 60 * 24 * 7)
+        except Exception as e:
+            logger.debug(f"Redis push_notification error: {e}")
+
+    async def get_notification_history(
+        self,
+        telegram_id: int,
+        limit: int = 20,
+    ) -> list[str]:
+        if not self._redis:
+            return []
+        key = f"bot:notif_history:{telegram_id}"
+        try:
+            items = await self._redis.lrange(key, 0, limit - 1)
+            return items if items else []
+        except Exception as e:
+            logger.debug(f"Redis get_notification_history error: {e}")
+            return []
+
+    async def clear_notification_history(self, telegram_id: int) -> None:
+        if not self._redis:
+            return
+        try:
+            await self._redis.delete(f"bot:notif_history:{telegram_id}")
+        except Exception as e:
+            logger.debug(f"Redis clear_notification_history error: {e}")
